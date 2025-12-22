@@ -65,3 +65,24 @@
   line-height: 1.7;
   font-size: 15px;
 }
+
+.stage-loading-partial {
+  border-color: rgba(138, 152, 255, 0.35);
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgba(138, 152, 255, 0.35);
+  }
+  50% {
+    border-color: rgba(138, 152, 255, 0.15);
+  }
+}
+
+.loading-badge {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-style: italic;
+}

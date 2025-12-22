@@ -515,6 +515,119 @@ class AdkCouncilRuntime:
             results.append(output)
         return results
 
+    async def collect_stage1_streaming(
+        self,
+        user_query: str,
+        history_messages: List[Dict[str, Any]],
+        on_agent_complete: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Collect stage1 responses, emitting events as each agent completes."""
+        timer = time.perf_counter()
+        history_section = _build_history_section(history_messages)
+
+        async def run_single_agent(agent: Agent, prompt: str) -> Optional[Dict[str, Any]]:
+            text = await self._run_agent(agent, prompt)
+            if text:
+                result = {"model": agent.name, "response": text}
+                if on_agent_complete:
+                    await on_agent_complete(result)
+                return result
+            return None
+
+        tasks = [
+            run_single_agent(
+                agent,
+                _format_prompt(
+                    STAGE1_PROMPT_TEMPLATE,
+                    agent_name=agent.name,
+                    user_query=user_query,
+                    history_section=history_section,
+                ),
+            )
+            for agent in self._council_agents
+        ]
+
+        # Use asyncio.as_completed to get results as they finish
+        stage1: List[Dict[str, Any]] = []
+        for coro in asyncio.as_completed(tasks):
+            try:
+                result = await coro
+                if result:
+                    stage1.append(result)
+            except Exception as exc:
+                logger.exception("Agent failed during stage1: %s", exc)
+
+        logger.info(
+            "stage1 streaming collected responses=%d duration=%.2fs",
+            len(stage1),
+            time.perf_counter() - timer,
+        )
+        return stage1
+
+    async def collect_stage2_streaming(
+        self,
+        user_query: str,
+        stage1_results: List[Dict[str, Any]],
+        history_messages: List[Dict[str, Any]],
+        on_agent_complete: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+        """Collect stage2 rankings, emitting events as each agent completes."""
+        timer = time.perf_counter()
+        labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
+        label_to_model = {
+            label: result["model"]
+            for label, result in zip(labels, stage1_results)
+        }
+        responses_text = "\n\n".join(
+            f"{label}:\n{result['response']}"
+            for label, result in zip(labels, stage1_results)
+        )
+        history_section = _build_history_section(history_messages)
+
+        async def run_single_agent(agent: Agent, prompt: str) -> Optional[Dict[str, Any]]:
+            ranking_text = await self._run_agent(agent, prompt)
+            if ranking_text:
+                parsed = parse_ranking_from_text(ranking_text)
+                result = {
+                    "model": agent.name,
+                    "ranking": ranking_text,
+                    "parsed_ranking": parsed,
+                }
+                if on_agent_complete:
+                    await on_agent_complete(result)
+                return result
+            return None
+
+        tasks = [
+            run_single_agent(
+                agent,
+                _format_prompt(
+                    STAGE2_PROMPT_TEMPLATE,
+                    agent_name=agent.name,
+                    user_query=user_query,
+                    responses_text=responses_text,
+                    history_section=history_section,
+                ),
+            )
+            for agent in self._council_agents
+        ]
+
+        stage2: List[Dict[str, Any]] = []
+        for coro in asyncio.as_completed(tasks):
+            try:
+                result = await coro
+                if result:
+                    stage2.append(result)
+            except Exception as exc:
+                logger.exception("Agent failed during stage2: %s", exc)
+
+        logger.info(
+            "stage2 streaming collected rankings=%d duration=%.2fs",
+            len(stage2),
+            time.perf_counter() - timer,
+        )
+        return stage2, label_to_model
+
     async def _run_agent(self, agent: Agent, prompt: str) -> Optional[str]:
         timer = time.perf_counter()
         session = await self._session_service.create_session(
@@ -866,9 +979,9 @@ async def run_pipeline(
         history_messages: Previous conversation messages
         on_event: Optional async callback for streaming events.
                   Called with (event_type, data) for each stage transition.
-                  Event types: 'route', 'stage1_start', 'stage1_complete',
-                               'stage2_start', 'stage2_complete',
-                               'stage3_start', 'stage3_complete'
+                  Event types: 'route', 'stage1_start', 'stage1_agent_complete',
+                               'stage1_complete', 'stage2_start', 'stage2_agent_complete',
+                               'stage2_complete', 'stage3_start', 'stage3_complete'
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
@@ -899,6 +1012,7 @@ async def run_pipeline(
             allow_tools=quick_allow_tools,
         )
         stage1_results = [stage1_entry]
+        await emit("stage1_agent_complete", stage1_entry)
         await emit("stage1_complete", stage1_results)
 
         # Empty stage2 for single-agent mode
@@ -916,9 +1030,16 @@ async def run_pipeline(
         await emit("stage3_complete", stage3_result)
 
     else:
-        # Full council deliberation
+        # Full council deliberation with per-agent streaming
         await emit("stage1_start")
-        stage1_results = await stage1_collect_responses(user_query, history_messages)
+
+        async def on_stage1_agent(result: Dict[str, Any]) -> None:
+            await emit("stage1_agent_complete", result)
+
+        runtime = _get_runtime()
+        stage1_results = await runtime.collect_stage1_streaming(
+            user_query, history_messages, on_agent_complete=on_stage1_agent
+        )
         await emit("stage1_complete", stage1_results)
 
         if not stage1_results:
@@ -935,8 +1056,19 @@ async def run_pipeline(
             return stage1_results, stage2_results, stage3_result, metadata
 
         await emit("stage2_start")
-        stage2_results, label_to_model = await stage2_collect_rankings(
-            user_query, stage1_results, history_messages
+
+        # Pre-compute label_to_model for stage2
+        labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
+        label_to_model = {
+            label: result["model"]
+            for label, result in zip(labels, stage1_results)
+        }
+
+        async def on_stage2_agent(result: Dict[str, Any]) -> None:
+            await emit("stage2_agent_complete", result)
+
+        stage2_results, _ = await runtime.collect_stage2_streaming(
+            user_query, stage1_results, history_messages, on_agent_complete=on_stage2_agent
         )
         aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
         metadata = {

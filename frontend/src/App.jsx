@@ -72,8 +72,8 @@ function App() {
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
-        stage1: null,
-        stage2: null,
+        stage1: [],  // Start with empty array for progressive updates
+        stage2: [],  // Start with empty array for progressive updates
         stage3: null,
         metadata: null,
         loading: {
@@ -98,6 +98,17 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage1 = true;
+              lastMsg.stage1 = [];  // Reset to empty array
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage1_agent_complete':
+            // Individual agent completed - add their response progressively
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.stage1 = [...(lastMsg.stage1 || []), event.data];
               return { ...prev, messages };
             });
             break;
@@ -117,6 +128,17 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
+              lastMsg.stage2 = [];  // Reset to empty array
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage2_agent_complete':
+            // Individual agent completed their ranking - add progressively
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.stage2 = [...(lastMsg.stage2 || []), event.data];
               return { ...prev, messages };
             });
             break;

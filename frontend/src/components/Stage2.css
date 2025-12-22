@@ -148,3 +148,17 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
 }
+
+.stage2.stage-loading-partial {
+  border-color: rgba(138, 152, 255, 0.35);
+  animation: pulse-border-stage2 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border-stage2 {
+  0%, 100% {
+    border-color: rgba(138, 152, 255, 0.35);
+  }
+  50% {
+    border-color: rgba(138, 152, 255, 0.15);
+  }
+}

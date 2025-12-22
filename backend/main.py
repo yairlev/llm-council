@@ -240,10 +240,14 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 )
             elif event_type == "stage1_start":
                 await event_queue.put({"type": "stage1_start"})
+            elif event_type == "stage1_agent_complete":
+                await event_queue.put({"type": "stage1_agent_complete", "data": data})
             elif event_type == "stage1_complete":
                 await event_queue.put({"type": "stage1_complete", "data": data})
             elif event_type == "stage2_start":
                 await event_queue.put({"type": "stage2_start"})
+            elif event_type == "stage2_agent_complete":
+                await event_queue.put({"type": "stage2_agent_complete", "data": data})
             elif event_type == "stage2_complete":
                 metadata_holder.update(data.get("metadata", {}))
                 await event_queue.put({

@@ -214,23 +214,32 @@ export default function ChatInterface({
                         {msg.loading?.stage1 && (
                           <div className="stage-loading">
                             <div className="spinner"></div>
-                            <span>Running Stage 1: Collecting individual responses...</span>
+                            <span>
+                              Running Stage 1: Collecting individual responses
+                              {msg.stage1?.length > 0 && ` (${msg.stage1.length} agent${msg.stage1.length > 1 ? 's' : ''} completed)`}
+                              ...
+                            </span>
                           </div>
                         )}
-                        {msg.stage1 && <Stage1 responses={msg.stage1} />}
+                        {msg.stage1?.length > 0 && <Stage1 responses={msg.stage1} loading={msg.loading?.stage1} />}
 
                         {/* Stage 2 */}
                         {msg.loading?.stage2 && (
                           <div className="stage-loading">
                             <div className="spinner"></div>
-                            <span>Running Stage 2: Peer rankings...</span>
+                            <span>
+                              Running Stage 2: Peer rankings
+                              {msg.stage2?.length > 0 && ` (${msg.stage2.length} agent${msg.stage2.length > 1 ? 's' : ''} completed)`}
+                              ...
+                            </span>
                           </div>
                         )}
-                        {msg.stage2 && (
+                        {msg.stage2?.length > 0 && (
                           <Stage2
                             rankings={msg.stage2}
                             labelToModel={msg.metadata?.label_to_model}
                             aggregateRankings={msg.metadata?.aggregate_rankings}
+                            loading={msg.loading?.stage2}
                           />
                         )}
 
