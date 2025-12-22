@@ -57,13 +57,13 @@ function App() {
     setCurrentConversationId(id);
   };
 
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content, attachments = []) => {
     if (!currentConversationId) return;
 
     setIsLoading(true);
     try {
       // Optimistically add user message to UI
-      const userMessage = { role: 'user', content };
+      const userMessage = { role: 'user', content, attachments };
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
@@ -90,7 +90,8 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
+      const attachmentIds = attachments.map((att) => att.id);
+      await api.sendMessageStream(currentConversationId, content, attachmentIds, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setCurrentConversation((prev) => {
@@ -178,6 +179,7 @@ function App() {
         messages: prev.messages.slice(0, -2),
       }));
       setIsLoading(false);
+      throw error;
     }
   };
 
@@ -191,6 +193,7 @@ function App() {
       />
       <ChatInterface
         conversation={currentConversation}
+        conversationId={currentConversationId}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
       />

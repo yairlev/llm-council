@@ -4,14 +4,18 @@ import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import './ChatInterface.css';
+import { api } from '../api';
 
 export default function ChatInterface({
   conversation,
+  conversationId,
   onSendMessage,
   isLoading,
 }) {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState([]);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -21,11 +25,20 @@ export default function ChatInterface({
     scrollToBottom();
   }, [conversation]);
 
-  const handleSubmit = (e) => {
+  useEffect(() => {
+    setAttachments([]);
+    setInput('');
+  }, [conversationId]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (input.trim() && !isLoading) {
-      onSendMessage(input);
+    if (!input.trim() || isLoading) return;
+    try {
+      await onSendMessage(input, attachments);
       setInput('');
+      setAttachments([]);
+    } catch (error) {
+      console.error('Send failed:', error);
     }
   };
 
@@ -35,6 +48,72 @@ export default function ChatInterface({
       e.preventDefault();
       handleSubmit(e);
     }
+  };
+
+  const handleFilesSelected = async (fileList) => {
+    if (!conversationId) return;
+    const files = Array.from(fileList);
+    for (const file of files) {
+      try {
+        const metadata = await api.uploadAttachment(conversationId, file);
+        setAttachments((prev) => [...prev, metadata]);
+      } catch (err) {
+        console.error('Failed to upload attachment:', err);
+      }
+    }
+  };
+
+  const handleFileInputChange = async (e) => {
+    if (e.target.files?.length) {
+      await handleFilesSelected(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    if (isLoading || !conversationId) return;
+    if (e.dataTransfer.files?.length) {
+      await handleFilesSelected(e.dataTransfer.files);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const removeAttachment = async (attachment) => {
+    if (!conversationId) return;
+    try {
+      await api.deleteAttachment(conversationId, attachment.id);
+      setAttachments((prev) => prev.filter((item) => item.id !== attachment.id));
+    } catch (error) {
+      console.error('Failed to delete attachment:', error);
+    }
+  };
+
+  const renderMessageAttachments = (items) => {
+    if (!items || items.length === 0) return null;
+    return (
+      <div className="message-attachments">
+        {items.map((att) => (
+          <div key={att.id} className="attachment-item">
+            <div className="attachment-title">
+              <strong>{att.filename}</strong>
+              <span>{att.mime_type}</span>
+            </div>
+            {att.relative_path && (
+              <div className="attachment-path">Path: {att.relative_path}</div>
+            )}
+            {att.text_excerpt && (
+              <div className="attachment-excerpt">
+                <em>{att.text_excerpt}</em>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   if (!conversation) {
@@ -66,6 +145,7 @@ export default function ChatInterface({
                     <div className="markdown-content">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
+                    {renderMessageAttachments(msg.attachments)}
                   </div>
                 </div>
               ) : (
@@ -120,16 +200,57 @@ export default function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
-      <form className="input-form" onSubmit={handleSubmit}>
-        <textarea
-          className="message-input"
-          placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={isLoading}
-          rows={3}
-        />
+      <form
+        className="input-form"
+        onSubmit={handleSubmit}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <div className="composer-area">
+          <div className="attachment-dropzone">
+            <p>Drop files here or</p>
+            <button
+              type="button"
+              className="attachment-button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || !conversationId}
+            >
+              Browse files
+            </button>
+            <input
+              type="file"
+              multiple
+              ref={fileInputRef}
+              onChange={handleFileInputChange}
+              style={{ display: 'none' }}
+            />
+          </div>
+          {attachments.length > 0 && (
+            <div className="attachment-list">
+              {attachments.map((att) => (
+                <div key={att.id} className="attachment-chip">
+                  <span>{att.filename}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(att)}
+                    aria-label={`Remove ${att.filename}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <textarea
+            className="message-input"
+            placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isLoading}
+            rows={3}
+          />
+        </div>
         <button
           type="submit"
           className="send-button"

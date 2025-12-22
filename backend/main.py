@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -9,7 +9,7 @@ import uuid
 import json
 import asyncio
 
-from . import storage
+from . import storage, uploads
 from .council import (
     run_full_council,
     generate_conversation_title,
@@ -19,6 +19,7 @@ from .council import (
     calculate_aggregate_rankings,
     run_quick_response,
     route_message,
+    build_prompt_with_attachments,
 )
 
 app = FastAPI(title="LLM Council API")
@@ -41,6 +42,7 @@ class CreateConversationRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
     content: str
+    attachments: List[str] = []
 
 
 class ConversationMetadata(BaseModel):
@@ -88,6 +90,30 @@ async def get_conversation(conversation_id: str):
     return conversation
 
 
+@app.post("/api/conversations/{conversation_id}/attachments")
+async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
+    """Upload a file to use as context within a conversation."""
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if not file:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+    metadata = uploads.save_upload(conversation_id, file)
+    return metadata
+
+
+@app.delete("/api/conversations/{conversation_id}/attachments/{attachment_id}")
+async def delete_attachment(conversation_id: str, attachment_id: str):
+    """Delete a previously uploaded file that hasn't been linked to a message."""
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    success = uploads.delete_attachment(conversation_id, attachment_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Attachment cannot be deleted (it may be linked or missing).")
+    return {"status": "deleted", "id": attachment_id}
+
+
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """
@@ -102,8 +128,15 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    attachment_ids = request.attachments or []
+    attachment_records = uploads.get_attachments(conversation_id, attachment_ids)
+    if len(attachment_records) != len(attachment_ids):
+        raise HTTPException(status_code=400, detail="One or more attachments were not found.")
+    user_prompt = build_prompt_with_attachments(request.content, attachment_records)
+
     # Add user message
-    storage.add_user_message(conversation_id, request.content)
+    storage.add_user_message(conversation_id, request.content, attachments=attachment_records)
+    uploads.mark_attachments_linked(conversation_id, attachment_ids)
     conversation = storage.get_conversation(conversation_id)
     history_messages = []
     if conversation:
@@ -119,7 +152,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         storage.update_conversation_title(conversation_id, title)
 
     try:
-        route_info = await route_message(request.content, history_messages)
+        route_info = await route_message(user_prompt, history_messages)
     except Exception as exc:
         route_info = {"mode": "council", "reason": f"router_error:{exc}"}
 
@@ -127,7 +160,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
     if use_single_agent:
         stage1_entry, stage3_entry = await run_quick_response(
-            request.content,
+            user_prompt,
             history_messages,
         )
         stage1_results = [stage1_entry]
@@ -141,7 +174,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     else:
         # Run the 3-stage council process
         stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-            request.content,
+            user_prompt,
             history_messages,
         )
         metadata = {**metadata, "route": route_info}
@@ -177,10 +210,17 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    attachment_ids = request.attachments or []
+    attachment_records = uploads.get_attachments(conversation_id, attachment_ids)
+    if len(attachment_records) != len(attachment_ids):
+        raise HTTPException(status_code=400, detail="One or more attachments were not found.")
+    user_prompt = build_prompt_with_attachments(request.content, attachment_records)
+
     async def event_generator():
         try:
             # Add user message
-            storage.add_user_message(conversation_id, request.content)
+            storage.add_user_message(conversation_id, request.content, attachments=attachment_records)
+            uploads.mark_attachments_linked(conversation_id, attachment_ids)
             convo = storage.get_conversation(conversation_id)
             history_messages = []
             if convo:
@@ -190,20 +230,20 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 else:
                     history_messages = msgs
 
-            try:
-                route_info = await route_message(request.content, history_messages)
-            except Exception as exc:
-                route_info = {"mode": "council", "reason": f"router_error:{exc}"}
-
             # Start title generation in parallel (don't await yet)
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
+            try:
+                route_info = await route_message(user_prompt, history_messages)
+            except Exception as exc:
+                route_info = {"mode": "council", "reason": f"router_error:{exc}"}
+
             use_single_agent = route_info.get("mode") == "single"
             if use_single_agent:
                 yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-                stage1_entry, stage3_entry = await run_quick_response(request.content, history_messages)
+                stage1_entry, stage3_entry = await run_quick_response(user_prompt, history_messages)
                 stage1_results = [stage1_entry]
                 stage2_results = []
                 metadata_payload = {"mode": "single_agent", "agent": stage1_entry["model"], "route": route_info}
@@ -218,12 +258,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             else:
                 # Stage 1: Collect responses
                 yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-                stage1_results = await stage1_collect_responses(request.content, history_messages)
+                stage1_results = await stage1_collect_responses(user_prompt, history_messages)
                 yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
                 # Stage 2: Collect rankings
                 yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-                stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results, history_messages)
+                stage2_results, label_to_model = await stage2_collect_rankings(user_prompt, stage1_results, history_messages)
                 aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
                 metadata_payload = {
                     'label_to_model': label_to_model,
@@ -234,7 +274,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
                 # Stage 3: Synthesize final answer
                 yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-                stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results, history_messages)
+                stage3_result = await stage3_synthesize_final(user_prompt, stage1_results, stage2_results, history_messages)
                 yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started

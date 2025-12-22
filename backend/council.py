@@ -18,10 +18,7 @@ from urllib.parse import urlparse
 try:
     from google.adk.agents import Agent
     from google.adk.tools import FunctionTool
-    from google.adk.tools.google_search_agent_tool import (
-        GoogleSearchAgentTool,
-        create_google_search_agent,
-    )
+    from google.adk.tools.google_search_tool import GoogleSearchTool
     from google.adk.utils.model_name_utils import is_gemini_model
     from google.adk.runners import Runner
     from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -138,6 +135,9 @@ def _format_conversation_history(messages: List[Dict[str, Any]]) -> str:
             content = message.get("content", "").strip()
             if content:
                 lines.append(f"User: {content}")
+            attachments = message.get("attachments") or []
+            if attachments:
+                lines.append(_format_attachments_summary(attachments))
         elif role == "assistant":
             stage3 = message.get("stage3") or {}
             response = stage3.get("response") or stage3.get("content") or ""
@@ -151,6 +151,27 @@ def _build_history_section(messages: List[Dict[str, Any]]) -> str:
     if not text:
         return "This is the first exchange between the user and the council.\n\n"
     return f"Conversation so far:\n{text}\n\n"
+
+
+def _format_attachments_summary(attachments: List[Dict[str, Any]]) -> str:
+    lines = ["Attachments provided:"]
+    for attachment in attachments:
+        filename = attachment.get("filename") or "file"
+        mime_type = attachment.get("mime_type") or "unknown"
+        size = attachment.get("size")
+        path = attachment.get("relative_path")
+        line = f"- {filename} ({mime_type}"
+        if size is not None:
+            line += f", {size} bytes"
+        line += ")"
+        if path:
+            line += f" [path: {path}]"
+        lines.append(line)
+        excerpt = attachment.get("text_excerpt")
+        if excerpt:
+            excerpt_clean = excerpt.strip()
+            lines.append(f"  Excerpt: {excerpt_clean}")
+    return "\n".join(lines)
 
 
 def browse_web(
@@ -221,6 +242,7 @@ class AdkCouncilRuntime:
             raise RuntimeError("GOOGLE_API_KEY must be set to run the ADK council.")
 
         self._base_tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL]
+        self._google_search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)
         self._app_name = "llm-council-adk"
         self._user_id = "local-user"
         self._session_service = InMemorySessionService()
@@ -249,6 +271,7 @@ class AdkCouncilRuntime:
             name="Delegator",
             description="Decides whether to run single-agent or council workflow.",
             instruction="Output JSON specifying routing decision.",
+            tools=self._tools_for_model(ADK_CHAIRMAN_MODEL),
         )
 
     async def collect_stage1(
@@ -455,9 +478,7 @@ class AdkCouncilRuntime:
     def _tools_for_model(self, model: str) -> List[Any]:
         tools: List[Any] = list(self._base_tools)
         if is_gemini_model(model):
-            search_agent = create_google_search_agent(model)
-            search_agent.name = "google_search"
-            tools.append(GoogleSearchAgentTool(search_agent))
+            tools.append(self._google_search_tool)
         return tools
 
 def _resolve_model_spec(model: Union[str, LiteLlm, None]) -> Union[str, LiteLlm, None]:
@@ -490,6 +511,33 @@ def _parse_route_decision(raw_text: Optional[str]) -> Dict[str, Any]:
         if "single" in cleaned and "council" not in cleaned:
             return {"mode": "single", "reason": raw_text[:200]}
         return default
+
+
+def build_prompt_with_attachments(content: str, attachments: Optional[List[Dict[str, Any]]]) -> str:
+    if not attachments:
+        return content
+
+    lines = [content.strip(), "", "Attachments:"]
+    for attachment in attachments:
+        filename = attachment.get("filename") or "file"
+        mime_type = attachment.get("mime_type") or "unknown"
+        path = attachment.get("relative_path")
+        line = f"- {filename} ({mime_type})"
+        if path:
+            line += f", stored at {path}"
+        lines.append(line)
+        excerpt = attachment.get("text_excerpt")
+        if excerpt:
+            excerpt_clean = excerpt.strip()
+            if len(excerpt_clean) > 1000:
+                excerpt_clean = excerpt_clean[:1000] + "..."
+            lines.append(f"  Preview: {excerpt_clean}")
+        text_path = attachment.get("text_path")
+        if text_path:
+            lines.append(f"  Text version: {text_path}")
+    lines.append("")
+    lines.append("Use the provided repository path(s) with read_repository_file when you need full file contents.")
+    return "\n".join(lines)
 
 
 def _clean_html(raw: str) -> str:

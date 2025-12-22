@@ -49,7 +49,39 @@ export const api = {
   /**
    * Send a message in a conversation.
    */
-  async sendMessage(conversationId, content) {
+  async uploadAttachment(conversationId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/attachments`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to upload attachment');
+    }
+    return response.json();
+  },
+
+  async deleteAttachment(conversationId, attachmentId) {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/attachments/${attachmentId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to delete attachment');
+    }
+    return response.json();
+  },
+
+  /**
+   * Send a message in a conversation.
+   */
+  async sendMessage(conversationId, content, attachments = []) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message`,
       {
@@ -57,7 +89,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachments }),
       }
     );
     if (!response.ok) {
@@ -73,7 +105,7 @@ export const api = {
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent) {
+  async sendMessageStream(conversationId, content, attachments = [], onEvent) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -81,7 +113,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachments }),
       }
     );
 
