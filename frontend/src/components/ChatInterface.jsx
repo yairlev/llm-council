@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
+import ProgressRail from './ProgressRail';
 import './ChatInterface.css';
 import { api } from '../api';
 
@@ -181,6 +182,7 @@ export default function ChatInterface({
       )}
       <div className="messages-container">
         <div className="conversation-frame">
+          {renderProgress(conversation)}
         {!conversation || conversation.messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
@@ -318,6 +320,28 @@ export default function ChatInterface({
         </button>
       </form>
     </div>
+  );
+}
+
+function renderProgress(conversation) {
+  if (!conversation || !conversation.messages?.length) return null;
+  const latestAssistant = [...conversation.messages]
+    .reverse()
+    .find(
+      (m) =>
+        m.role === 'assistant' &&
+        (m.loading?.stage1 || m.loading?.stage2 || m.loading?.stage3 || !m.stage3)
+    );
+  if (!latestAssistant) return null;
+  const mode = latestAssistant.metadata?.mode || latestAssistant.metadata?.route?.mode;
+  return (
+    <ProgressRail
+      mode={mode === 'single_agent' ? 'single_agent' : 'council'}
+      loading={latestAssistant.loading}
+      stage1={latestAssistant.stage1}
+      stage2={latestAssistant.stage2}
+      stage3={latestAssistant.stage3}
+    />
   );
 }
 

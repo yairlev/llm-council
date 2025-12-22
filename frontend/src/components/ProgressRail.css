@@ -1,0 +1,69 @@
+.progress-rail {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.progress-heading {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.progress-track {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.progress-track.single {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+
+.progress-step .step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-default);
+}
+
+.progress-step .step-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.progress-step.active {
+  border-color: var(--accent-primary);
+}
+
+.progress-step.active .step-dot {
+  background: var(--accent-primary);
+}
+
+.progress-step.done .step-dot {
+  background: var(--accent-success);
+}
+
+.progress-step.done .step-label {
+  color: var(--text-primary);
+}
+
+.progress-step.locked {
+  opacity: 0.5;
+}
