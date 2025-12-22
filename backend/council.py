@@ -296,6 +296,11 @@ class AdkCouncilRuntime:
 
         self._base_tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL, READ_ARTIFACT_TOOL]
         self._google_search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)
+        # Align the tool name with the function_call the model emits.
+        try:
+            self._google_search_tool.name = "google_search"
+        except Exception:
+            pass
         self._app_name = APP_NAME
         self._user_id = USER_ID
         self._session_service = InMemorySessionService()
