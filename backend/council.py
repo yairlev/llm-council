@@ -47,16 +47,16 @@ COUNCIL_MEMBER_INSTRUCTION = (
     "reading project files. Use them whenever you need current context or source material."
 )
 
-STAGE1_PROMPT_TEMPLATE = """You are {agent_name}, a council member asked to address:
+STAGE1_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, a council member asked to address:
 
-Question: {user_query}
+Latest question: {user_query}
 
 Deliver a thoughtful, tool-supported response. Explicitly mention if you used browsing or file
 reading tools and summarize the evidence you relied on."""
 
-STAGE2_PROMPT_TEMPLATE = """You are {agent_name}, reviewing anonymized council responses to:
+STAGE2_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, reviewing anonymized council responses to:
 
-Question: {user_query}
+Latest question: {user_query}
 
 {responses_text}
 
@@ -70,9 +70,9 @@ FINAL RANKING:
 3. Response Z
 """
 
-STAGE3_PROMPT_TEMPLATE = """You are the Chairman who must synthesize the council's work.
+STAGE3_PROMPT_TEMPLATE = """{history_section}You are the Chairman who must synthesize the council's work.
 
-Original Question:
+Latest Question:
 {user_query}
 
 STAGE 1 RESPONSES:
@@ -88,6 +88,28 @@ TITLE_PROMPT_TEMPLATE = """Generate a concise 3-5 word title (no quotes) that su
 
 {user_query}
 """
+
+def _format_conversation_history(messages: List[Dict[str, Any]]) -> str:
+    lines: List[str] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "user":
+            content = message.get("content", "").strip()
+            if content:
+                lines.append(f"User: {content}")
+        elif role == "assistant":
+            stage3 = message.get("stage3") or {}
+            response = stage3.get("response") or stage3.get("content") or ""
+            if response:
+                lines.append(f"Assistant: {response.strip()}")
+    return "\n".join(lines)
+
+
+def _build_history_section(messages: List[Dict[str, Any]]) -> str:
+    text = _format_conversation_history(messages)
+    if not text:
+        return "This is the first exchange between the user and the council.\n\n"
+    return f"Conversation so far:\n{text}\n\n"
 
 
 def browse_web(
@@ -180,9 +202,18 @@ class AdkCouncilRuntime:
             instruction="Respond with 3-5 word descriptive titles. No punctuation.",
         )
 
-    async def collect_stage1(self, user_query: str) -> List[Dict[str, Any]]:
+    async def collect_stage1(
+        self,
+        user_query: str,
+        history_messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        history_section = _build_history_section(history_messages)
         prompts = [
-            STAGE1_PROMPT_TEMPLATE.format(agent_name=agent.name, user_query=user_query)
+            STAGE1_PROMPT_TEMPLATE.format(
+                agent_name=agent.name,
+                user_query=user_query,
+                history_section=history_section,
+            )
             for agent in self._council_agents
         ]
         results = await self._gather_agent_runs(prompts)
@@ -196,6 +227,7 @@ class AdkCouncilRuntime:
         self,
         user_query: str,
         stage1_results: List[Dict[str, Any]],
+        history_messages: List[Dict[str, Any]],
     ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
         labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
         label_to_model = {
@@ -206,10 +238,12 @@ class AdkCouncilRuntime:
             f"{label}:\n{result['response']}"
             for label, result in zip(labels, stage1_results)
         )
+        history_section = _build_history_section(history_messages)
         prompt = STAGE2_PROMPT_TEMPLATE.format(
             agent_name="{agent_name}",
             user_query=user_query,
             responses_text=responses_text,
+            history_section=history_section,
         )
         prompts = [
             prompt.format(agent_name=agent.name)
@@ -233,6 +267,7 @@ class AdkCouncilRuntime:
         user_query: str,
         stage1_results: List[Dict[str, Any]],
         stage2_results: List[Dict[str, Any]],
+        history_messages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         stage1_text = "\n\n".join(
             f"{item['model']}:\n{item['response']}" for item in stage1_results
@@ -240,10 +275,12 @@ class AdkCouncilRuntime:
         stage2_text = "\n\n".join(
             f"{item['model']}:\n{item['ranking']}" for item in stage2_results
         )
+        history_section = _build_history_section(history_messages)
         prompt = STAGE3_PROMPT_TEMPLATE.format(
             user_query=user_query,
             stage1_text=stage1_text or "No responses collected.",
             stage2_text=stage2_text or "No peer reviews collected.",
+            history_section=history_section,
         )
         text = await self._run_agent(self._chairman, prompt)
         return {
@@ -413,41 +450,60 @@ def _get_runtime() -> AdkCouncilRuntime:
     return _runtime
 
 
-async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
-    return await _get_runtime().collect_stage1(user_query)
+async def stage1_collect_responses(
+    user_query: str,
+    history_messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    return await _get_runtime().collect_stage1(user_query, history_messages)
 
 
 async def stage2_collect_rankings(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
+    history_messages: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-    return await _get_runtime().collect_stage2(user_query, stage1_results)
+    return await _get_runtime().collect_stage2(user_query, stage1_results, history_messages)
 
 
 async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
+    history_messages: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    return await _get_runtime().synthesize_final(user_query, stage1_results, stage2_results)
+    return await _get_runtime().synthesize_final(
+        user_query,
+        stage1_results,
+        stage2_results,
+        history_messages,
+    )
 
 
 async def generate_conversation_title(user_query: str) -> str:
     return await _get_runtime().generate_title(user_query)
 
 
-async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
-    stage1_results = await stage1_collect_responses(user_query)
+async def run_full_council(
+    user_query: str,
+    history_messages: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[List, List, Dict, Dict]:
+    history = history_messages or []
+    stage1_results = await stage1_collect_responses(user_query, history)
     if not stage1_results:
         return [], [], {
             "model": "error",
             "response": "All ADK agents failed to respond. Please try again."
         }, {}
 
-    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results)
+    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results, history)
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
 
-    stage3_result = await stage3_synthesize_final(user_query, stage1_results, stage2_results)
+    stage3_result = await stage3_synthesize_final(
+        user_query,
+        stage1_results,
+        stage2_results,
+        history,
+    )
     metadata = {
         "label_to_model": label_to_model,
         "aggregate_rankings": aggregate_rankings,

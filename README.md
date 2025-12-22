@@ -10,6 +10,8 @@ In a bit more detail, here is what happens when you submit a query:
 2. **Stage 2: Review**. The same agents receive anonymized versions of their peers' answers and must critique and rank them using the strict `FINAL RANKING` format.
 3. **Stage 3: Final response**. The chairman agent combines the best ideas, resolves disagreements, and delivers one polished answer.
 
+Each conversation is stateful: every follow-up question automatically includes the prior user prompts and chairman responses, so you can chat naturally without restating context.
+
 ## Vibe Code Alert
 
 This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.

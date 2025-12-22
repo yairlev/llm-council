@@ -20,9 +20,9 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 def _parse_adk_members(raw_value: str | None) -> List[Dict[str, str]]:
     """Parse ADK council member definitions from a comma-separated env var."""
     default = [
-        {"name": "Orion", "model": "gemini-3.0-pro-preview"},
+        {"name": "Orion", "model": "gemini-3-pro-preview"},
         {"name": "Lyra", "model": "gemini-3-flash-preview"},
-        {"name": "Vega", "model": "claude-3-5-sonnet"},
+        {"name": "Vega", "model": "claude-sonnet-4-5"},
     ]
 
     if not raw_value:
