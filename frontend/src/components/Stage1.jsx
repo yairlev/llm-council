@@ -27,7 +27,7 @@ export default function Stage1({ responses }) {
 
       <div className="tab-content">
         <div className="model-name">{responses[activeTab].model}</div>
-        <div className="response-text markdown-content">
+        <div className="response-text markdown-content" dir="auto">
           <ReactMarkdown>{responses[activeTab].response}</ReactMarkdown>
         </div>
       </div>

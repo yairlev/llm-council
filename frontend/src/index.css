@@ -31,6 +31,9 @@ body {
 /* Global markdown styling */
 .markdown-content {
   padding: 12px;
+  direction: auto;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .markdown-content p {
@@ -62,7 +65,7 @@ body {
 .markdown-content ul,
 .markdown-content ol {
   margin: 0 0 12px 0;
-  padding-left: 24px;
+  padding-inline-start: 24px;
 }
 
 .markdown-content li {
@@ -92,7 +95,7 @@ body {
 
 .markdown-content blockquote {
   margin: 0 0 12px 0;
-  padding-left: 16px;
-  border-left: 4px solid #ddd;
+  padding-inline-start: 16px;
+  border-inline-start: 4px solid #ddd;
   color: #666;
 }

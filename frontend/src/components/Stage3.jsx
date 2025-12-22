@@ -13,7 +13,7 @@ export default function Stage3({ finalResponse }) {
         <div className="chairman-label">
           Chairman: {finalResponse.model.split('/')[1] || finalResponse.model}
         </div>
-        <div className="final-text markdown-content">
+        <div className="final-text markdown-content" dir="auto">
           <ReactMarkdown>{finalResponse.response}</ReactMarkdown>
         </div>
       </div>

@@ -47,7 +47,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
         <div className="ranking-model">
           {rankings[activeTab].model}
         </div>
-        <div className="ranking-content markdown-content">
+        <div className="ranking-content markdown-content" dir="auto">
           <ReactMarkdown>
             {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
           </ReactMarkdown>

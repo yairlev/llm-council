@@ -196,7 +196,7 @@ export default function ChatInterface({
                 {msg.role === 'user' ? (
                   <div className="user-message">
                     <div className="message-label">You</div>
-                    <div className="message-content">
+                    <div className="message-content" dir="auto">
                       <div className="markdown-content">
                         <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>
@@ -362,7 +362,7 @@ function SingleAgentResponse({ message }) {
       <div className="single-agent-label">
         Single Agent Response ({agentName})
       </div>
-      <div className="single-agent-content">
+      <div className="single-agent-content" dir="auto">
         <div className="markdown-content">
           <ReactMarkdown>{body}</ReactMarkdown>
         </div>
