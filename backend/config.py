@@ -35,7 +35,7 @@ def _parse_adk_members(raw_value: str | None) -> List[Dict[str, str]]:
     default = [
         {"name": "Lyra", "model": "gemini-3-flash-preview"},
         {"name": "Orion", "model": "gemini-3-pro-preview"},
-        {"name": "Vega", "model": "openrouter/deepseek/deepseek-r1"},
+        {"name": "Vega", "model": "openrouter/x-ai/grok-4.1-fast"},
     ]
 
     if not raw_value:

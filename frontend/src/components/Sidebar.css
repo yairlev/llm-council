@@ -1,47 +1,47 @@
- .sidebar {
-  width: 320px;
-  min-width: 280px;
-  background: rgba(12, 12, 12, 0.92);
-  backdrop-filter: blur(18px);
-  border-radius: 30px;
-  padding: 28px 24px;
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-soft);
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  gap: 12px;
 }
 
 .sidebar-header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 8px;
 }
 
 .sidebar-header h1 {
-  font-size: 22px;
+  font-size: 16px;
   margin: 0;
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 24px;
 }
 
 .new-conversation-btn {
   width: 100%;
-  padding: 12px 14px;
-  background: #2a2a2a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  color: #fff;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  color: var(--text-primary);
   cursor: pointer;
-  font-size: 15px;
-  transition: transform 0.2s, box-shadow 0.2s;
+  font-size: 14px;
   font-weight: 600;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  line-height: 22px;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .new-conversation-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 18px 35px rgba(143, 155, 255, 0.35);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-default);
 }
 
 .conversation-list {
@@ -60,41 +60,43 @@
 }
 
 .no-conversations {
-  padding: 24px;
+  padding: 12px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .conversation-item {
-  padding: 14px;
-  margin-bottom: 8px;
-  border-radius: 16px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
-  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  border-left: 3px solid transparent;
 }
 
- .conversation-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+.conversation-item:hover {
+  background: var(--bg-surface-hover);
 }
 
 .conversation-item.active {
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+  border-left-color: var(--accent-primary);
+  background: var(--bg-surface);
 }
 
 .conversation-title {
   color: var(--text-primary);
-  font-size: 15px;
-  margin-bottom: 6px;
+  font-size: 14px;
+  margin-bottom: 4px;
   font-weight: 600;
+  line-height: 22px;
 }
 
 .conversation-meta {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 @media (max-width: 960px) {

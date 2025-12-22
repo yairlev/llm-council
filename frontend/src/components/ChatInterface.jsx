@@ -36,7 +36,7 @@ export default function ChatInterface({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !conversationId) return;
     try {
       await onSendMessage(input, attachments);
       setInput('');
@@ -48,7 +48,7 @@ export default function ChatInterface({
 
   const handleKeyDown = (e) => {
     // Submit on Enter (without Shift)
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && conversationId) {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -180,6 +180,7 @@ export default function ChatInterface({
         </div>
       )}
       <div className="messages-container">
+        <div className="conversation-frame">
         {!conversation || conversation.messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
@@ -256,6 +257,7 @@ export default function ChatInterface({
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       <form
@@ -303,14 +305,14 @@ export default function ChatInterface({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isLoading}
+            disabled={isLoading || !conversationId}
             rows={3}
           />
         </div>
         <button
           type="submit"
           className="send-button"
-          disabled={!input.trim() || isLoading}
+          disabled={!input.trim() || isLoading || !conversationId}
         >
           Send
         </button>
