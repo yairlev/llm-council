@@ -1,65 +1,67 @@
 .stage {
-  margin: 24px 0;
-  padding: 20px;
-  background: #fafafa;
-  border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  margin: 28px 0;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
 }
 
 .stage-title {
-  margin: 0 0 16px 0;
-  color: #333;
-  font-size: 16px;
-  font-weight: 600;
+  margin: 0 0 18px 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
 }
 
 .tab {
-  padding: 8px 16px;
-  background: #ffffff;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px 6px 0 0;
-  color: #666;
+  padding: 10px 18px;
+  background: rgba(15, 15, 15, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
 }
 
 .tab:hover {
-  background: #f0f0f0;
-  color: #333;
-  border-color: #4a90e2;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--text-primary);
 }
 
 .tab.active {
-  background: #ffffff;
-  color: #4a90e2;
-  border-color: #4a90e2;
-  border-bottom-color: #ffffff;
-  font-weight: 600;
+  background: #2c2c2c;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.4);
 }
 
 .tab-content {
-  background: #ffffff;
-  padding: 16px;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
+  background: rgba(15, 18, 30, 0.75);
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(138, 152, 255, 0.18);
 }
 
 .model-name {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 12px;
   margin-bottom: 12px;
-  font-family: monospace;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .response-text {
-  color: #333;
-  line-height: 1.6;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-size: 15px;
 }

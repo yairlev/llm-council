@@ -1,11 +1,11 @@
-.stage2 {
-  background: #fafafa;
+ .stage2 {
+  background: transparent;
 }
 
 .stage2 h4 {
-  margin: 20px 0 8px 0;
-  color: #333;
-  font-size: 14px;
+  margin: 18px 0 8px 0;
+  color: var(--text-primary);
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -14,140 +14,137 @@
 }
 
 .stage-description {
-  margin: 0 0 12px 0;
-  color: #666;
-  font-size: 13px;
+  margin: 0 0 14px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
   line-height: 1.5;
 }
 
-.aggregate-rankings {
-  background: #f0f7ff;
-  padding: 16px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  border: 2px solid #d0e7ff;
+ .aggregate-rankings {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 18px;
+  border-radius: 18px;
+  margin-bottom: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .aggregate-rankings h4 {
   margin: 0 0 12px 0;
-  color: #2a7ae2;
+  color: var(--primary);
   font-size: 15px;
+  font-weight: 600;
 }
 
 .aggregate-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.aggregate-item {
+ .aggregate-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px;
-  background: #ffffff;
-  border-radius: 6px;
-  border: 1px solid #d0e7ff;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.rank-position {
-  color: #2a7ae2;
+ .rank-position {
+  color: var(--text-primary);
   font-weight: 700;
   font-size: 16px;
-  min-width: 35px;
+  min-width: 30px;
 }
 
 .rank-model {
   flex: 1;
-  color: #333;
-  font-family: monospace;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
-.rank-score {
-  color: #666;
+.rank-score,
+.rank-count {
+  color: var(--text-secondary);
   font-size: 13px;
-  font-family: monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .stage2 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
 }
 
 .stage2 .tab {
-  padding: 8px 16px;
-  background: #ffffff;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px 6px 0 0;
-  color: #666;
+  padding: 10px 18px;
+  background: rgba(15, 15, 15, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
 }
 
 .stage2 .tab:hover {
-  background: #f0f0f0;
-  color: #333;
-  border-color: #4a90e2;
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .stage2 .tab.active {
-  background: #ffffff;
-  color: #4a90e2;
-  border-color: #4a90e2;
-  border-bottom-color: #ffffff;
-  font-weight: 600;
+  background: #2c2c2c;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
 }
 
 .stage2 .tab-content {
-  background: #ffffff;
-  padding: 16px;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
-  margin-bottom: 20px;
+  background: rgba(15, 18, 30, 0.65);
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(138, 152, 255, 0.18);
+  margin-bottom: 22px;
 }
 
 .ranking-model {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 12px;
-  font-family: monospace;
-  margin-bottom: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .ranking-content {
-  color: #333;
-  line-height: 1.6;
+  color: var(--text-primary);
+  line-height: 1.7;
   font-size: 14px;
 }
 
 .parsed-ranking {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 2px solid #e0e0e0;
+  border-top: 1px dashed rgba(16, 24, 40, 0.12);
 }
 
 .parsed-ranking strong {
-  color: #2a7ae2;
+  color: var(--primary);
   font-size: 13px;
 }
 
 .parsed-ranking ol {
   margin: 8px 0 0 0;
   padding-left: 24px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .parsed-ranking li {
   margin: 4px 0;
-  font-family: monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
-}
-
-.rank-count {
-  color: #999;
-  font-size: 12px;
 }
