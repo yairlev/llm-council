@@ -98,7 +98,7 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=404, detail="Conversation not found")
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded")
-    metadata = uploads.save_upload(conversation_id, file)
+    metadata = await uploads.save_upload(conversation_id, file)
     return metadata
 
 
@@ -108,7 +108,7 @@ async def delete_attachment(conversation_id: str, attachment_id: str):
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    success = uploads.delete_attachment(conversation_id, attachment_id)
+    success = await uploads.delete_attachment(conversation_id, attachment_id)
     if not success:
         raise HTTPException(status_code=400, detail="Attachment cannot be deleted (it may be linked or missing).")
     return {"status": "deleted", "id": attachment_id}

@@ -23,7 +23,6 @@ try:
     from google.adk.runners import Runner
     from google.adk.sessions.in_memory_session_service import InMemorySessionService
     from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-    from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
     from google.adk.models.lite_llm import LiteLlm
     from google.genai import types as genai_types
 except ImportError as exc:  # pragma: no cover - surfaced at runtime for clarity
@@ -42,6 +41,8 @@ from .config import (
     GOOGLE_API_KEY,
     REPO_ROOT,
 )
+from .services import get_artifact_service, APP_NAME, USER_ID
+from . import uploads
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +63,15 @@ DEFAULT_BROWSE_HEADERS = {
     "Pragma": "no-cache",
     "Connection": "keep-alive",
 }
+ARTIFACT_TOOL_MAX_CHARS = 8000
 
 
 COUNCIL_MEMBER_INSTRUCTION = (
     "You are a voting member of the LLM Council. "
     "Provide deeply reasoned answers, cite the tools you called, and explain tradeoffs. "
-    "Available tools: `browse_web` for fetching URLs and `read_repository_file` for "
-    "reading project files. Use them whenever you need current context or source material."
+    "Available tools: `browse_web` for fetching URLs, `read_repository_file` for "
+    "reading project files, and `read_uploaded_artifact` for accessing user-provided "
+    "attachments. Use them whenever you need current context or source material."
 )
 
 STAGE1_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, a council member asked to address:
@@ -230,8 +233,49 @@ def read_repository_file(
     }
 
 
+async def read_uploaded_artifact(
+    attachment_id: str,
+    max_chars: Optional[int] = None,
+) -> Dict[str, Any]:
+    record = uploads.load_attachment_record(attachment_id)
+    if not record:
+        return {"error": "Attachment not found."}
+
+    artifact_service = get_artifact_service()
+    part = await artifact_service.load_artifact(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        filename=record["artifact_key"],
+        session_id=None,
+    )
+    if part is None:
+        return {"error": "Attachment content is no longer available."}
+
+    text = _part_to_text(part)
+    if text is None:
+        return {
+            "attachment_id": attachment_id,
+            "filename": record["filename"],
+            "mime_type": record["mime_type"],
+            "error": "Attachment is binary or unsupported for inline reading.",
+            "canonical_uri": record.get("canonical_uri"),
+        }
+
+    limit = max_chars or ARTIFACT_TOOL_MAX_CHARS
+    snippet = text[:limit]
+    return {
+        "attachment_id": attachment_id,
+        "filename": record["filename"],
+        "mime_type": record["mime_type"],
+        "text": snippet,
+        "truncated": len(text) > len(snippet),
+        "canonical_uri": record.get("canonical_uri"),
+    }
+
+
 BROWSE_WEB_TOOL = FunctionTool(browse_web)
 READ_FILE_TOOL = FunctionTool(read_repository_file)
+READ_ARTIFACT_TOOL = FunctionTool(read_uploaded_artifact)
 
 
 class AdkCouncilRuntime:
@@ -241,13 +285,13 @@ class AdkCouncilRuntime:
         if not GOOGLE_API_KEY:
             raise RuntimeError("GOOGLE_API_KEY must be set to run the ADK council.")
 
-        self._base_tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL]
+        self._base_tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL, READ_ARTIFACT_TOOL]
         self._google_search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)
-        self._app_name = "llm-council-adk"
-        self._user_id = "local-user"
+        self._app_name = APP_NAME
+        self._user_id = USER_ID
         self._session_service = InMemorySessionService()
         self._memory_service = InMemoryMemoryService()
-        self._artifact_service = InMemoryArtifactService()
+        self._artifact_service = get_artifact_service()
         self._council_agents = [
             self._build_member_agent(member, index)
             for index, member in enumerate(ADK_COUNCIL_MEMBERS, start=1)
@@ -521,10 +565,13 @@ def build_prompt_with_attachments(content: str, attachments: Optional[List[Dict[
     for attachment in attachments:
         filename = attachment.get("filename") or "file"
         mime_type = attachment.get("mime_type") or "unknown"
-        path = attachment.get("relative_path")
+        artifact_id = attachment.get("id")
+        canonical_uri = attachment.get("canonical_uri")
         line = f"- {filename} ({mime_type})"
-        if path:
-            line += f", stored at {path}"
+        if artifact_id:
+            line += f" [Attachment ID: {artifact_id}]"
+        if canonical_uri:
+            line += f" [Artifact URI: {canonical_uri}]"
         lines.append(line)
         excerpt = attachment.get("text_excerpt")
         if excerpt:
@@ -532,12 +579,22 @@ def build_prompt_with_attachments(content: str, attachments: Optional[List[Dict[
             if len(excerpt_clean) > 1000:
                 excerpt_clean = excerpt_clean[:1000] + "..."
             lines.append(f"  Preview: {excerpt_clean}")
-        text_path = attachment.get("text_path")
-        if text_path:
-            lines.append(f"  Text version: {text_path}")
+        if artifact_id:
+            lines.append(f"  Use read_uploaded_artifact('{artifact_id}') for full text.")
     lines.append("")
-    lines.append("Use the provided repository path(s) with read_repository_file when you need full file contents.")
+    lines.append("Use the provided Attachment IDs with read_uploaded_artifact when you need full file contents.")
     return "\n".join(lines)
+
+
+def _part_to_text(part: genai_types.Part) -> Optional[str]:
+    if part.text:
+        return part.text
+    if part.inline_data and part.inline_data.data:
+        try:
+            return part.inline_data.data.decode("utf-8")
+        except UnicodeDecodeError:
+            return part.inline_data.data.decode("latin-1", errors="replace")
+    return None
 
 
 def _clean_html(raw: str) -> str:

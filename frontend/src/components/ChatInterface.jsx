@@ -102,8 +102,11 @@ export default function ChatInterface({
               <strong>{att.filename}</strong>
               <span>{att.mime_type}</span>
             </div>
-            {att.relative_path && (
-              <div className="attachment-path">Path: {att.relative_path}</div>
+            {att.id && (
+              <div className="attachment-path">Attachment ID: {att.id}</div>
+            )}
+            {att.canonical_uri && (
+              <div className="attachment-path">Artifact URI: {att.canonical_uri}</div>
             )}
             {att.text_excerpt && (
               <div className="attachment-excerpt">
