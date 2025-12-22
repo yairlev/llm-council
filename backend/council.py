@@ -11,10 +11,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+from urllib.parse import urlparse
 
 try:
     from google.adk.agents import Agent
     from google.adk.tools import FunctionTool
+    from google.adk.tools.google_search_tool import GoogleSearchTool
+    from google.adk.utils.model_name_utils import is_gemini_model
     from google.adk.runners import Runner
     from google.adk.sessions.in_memory_session_service import InMemorySessionService
     from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
@@ -38,6 +41,22 @@ from .config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_BROWSE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) "
+        "Gecko/20100101 Firefox/132.0"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"
+        "image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Connection": "keep-alive",
+}
 
 
 COUNCIL_MEMBER_INSTRUCTION = (
@@ -119,9 +138,10 @@ def browse_web(
 ) -> Dict[str, Any]:
     """Simple HTTP GET tool for agents."""
     limit = max_chars or ADK_WEB_TOOL_MAX_CHARS
+    headers = _build_browse_headers(url)
     try:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            response = client.get(url)
+            response = client.get(url, headers=headers)
             response.raise_for_status()
     except Exception as exc:  # pragma: no cover - network/tool failures
         logger.warning("browse_web failed for %s: %s", url, exc)
@@ -178,7 +198,8 @@ class AdkCouncilRuntime:
         if not GOOGLE_API_KEY:
             raise RuntimeError("GOOGLE_API_KEY must be set to run the ADK council.")
 
-        self._tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL]
+        self._base_tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL]
+        self._google_search_tool = google_search
         self._app_name = "llm-council-adk"
         self._user_id = "local-user"
         self._session_service = InMemorySessionService()
@@ -193,7 +214,7 @@ class AdkCouncilRuntime:
             name="Chairman",
             description="Synthesizes the council output into a final answer.",
             instruction="Combine peer work into a cohesive, well-balanced response.",
-            tools=self._tools,
+            tools=self._tools_for_model(ADK_CHAIRMAN_MODEL),
         )
         self._title_agent = Agent(
             model=ADK_TITLE_MODEL,
@@ -361,8 +382,14 @@ class AdkCouncilRuntime:
             name=name,
             description=f"{name} uses {model} to contribute unique insights.",
             instruction=COUNCIL_MEMBER_INSTRUCTION,
-            tools=self._tools,
+            tools=self._tools_for_model(model),
         )
+
+    def _tools_for_model(self, model: str) -> List[Any]:
+        tools: List[Any] = list(self._base_tools)
+        if is_gemini_model(model):
+            tools.append(self._google_search_tool)
+        return tools
 
 
 def _clean_html(raw: str) -> str:
@@ -393,6 +420,21 @@ def _display_path(target: Path) -> str:
         return str(target.relative_to(REPO_ROOT))
     except ValueError:
         return str(target)
+
+
+def _build_browse_headers(url: str) -> Dict[str, str]:
+    headers = dict(DEFAULT_BROWSE_HEADERS)
+    try:
+        domain = urlparse(url).netloc.lower()
+    except Exception:
+        return headers
+
+    if domain.endswith("wikipedia.org"):
+        headers["Referer"] = "https://www.wikipedia.org/"
+    elif domain.endswith("github.com"):
+        headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        headers["Referer"] = "https://github.com/"
+    return headers
 
 
 def _coerce_response_text(result: Any) -> Optional[str]:

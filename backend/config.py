@@ -22,7 +22,7 @@ def _parse_adk_members(raw_value: str | None) -> List[Dict[str, str]]:
     default = [
         {"name": "Orion", "model": "gemini-3-pro-preview"},
         {"name": "Lyra", "model": "gemini-3-flash-preview"},
-        {"name": "Vega", "model": "claude-sonnet-4-5"},
+        {"name": "Vega", "model": "publishers/anthropic/models/claude-sonnet-4"},
     ]
 
     if not raw_value:
