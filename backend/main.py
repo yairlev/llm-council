@@ -11,7 +11,6 @@ import asyncio
 import logging
 import os
 import time
-import re
 
 from . import storage, uploads
 from .council import (
@@ -36,39 +35,6 @@ else:
     root_logger.setLevel(LOG_LEVEL)
 
 logger = logging.getLogger("llm_council.api")
-
-
-def _is_trivial_greeting(text: str) -> bool:
-    """Lightweight guard to avoid heavy council flow for simple greetings."""
-    if not text:
-        return False
-    normalized = re.sub(r"[^a-zA-Z0-9\\s]", " ", text).lower().strip()
-    if len(normalized) > 60:
-        return False
-    tokens = normalized.split()
-    if not tokens:
-        return False
-    greetings = {"hi", "hello", "hey", "howdy", "greetings", "yo"}
-    common_phrases = {
-        "hi there",
-        "hello there",
-        "hey there",
-        "hi",
-        "hello",
-        "hey",
-    }
-    if normalized in common_phrases:
-        return True
-    if tokens[0] in greetings and len(tokens) <= 6:
-        return True
-    return False
-
-
-def _build_greeting_response() -> Dict[str, Any]:
-    return {
-        "model": "system",
-        "response": "Hi there! I'm here and ready to help. What would you like to do?",
-    }
 
 app = FastAPI(title="LLM Council API")
 
@@ -182,7 +148,6 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     if len(attachment_records) != len(attachment_ids):
         raise HTTPException(status_code=400, detail="One or more attachments were not found.")
     user_prompt = build_prompt_with_attachments(request.content, attachment_records)
-
     logger.info(
         "message request conversation_id=%s first_message=%s attachments=%d",
         conversation_id,
@@ -202,11 +167,6 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         else:
             history_messages = messages
 
-    # If this is the first message, generate a title
-    if is_first_message:
-        title = await generate_conversation_title(request.content)
-        storage.update_conversation_title(conversation_id, title)
-
     try:
         route_info = await route_message(user_prompt, history_messages)
     except Exception as exc:
@@ -219,12 +179,15 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     )
 
     use_single_agent = route_info.get("mode") == "single"
+    route_reason = (route_info.get("reason") or "").lower()
+    quick_allow_tools = not ("trivial" in route_reason)
 
     if use_single_agent:
         stage1_start = time.perf_counter()
         stage1_entry, stage3_entry = await run_quick_response(
             user_prompt,
             history_messages,
+            allow_tools=quick_allow_tools,
         )
         logger.info(
             "single-agent complete conversation_id=%s model=%s duration=%.2fs",
@@ -264,6 +227,15 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         stage3_result,
         metadata=metadata,
     )
+
+    # Generate title after routing to avoid overhead on trivial greetings
+    title_reason = route_info.get("reason", "").lower()
+    if is_first_message and "trivial" not in title_reason:
+        try:
+            title = await generate_conversation_title(request.content)
+            storage.update_conversation_title(conversation_id, title)
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.warning("title generation failed conversation_id=%s error=%s", conversation_id, exc)
 
     logger.info(
         "response stored conversation_id=%s mode=%s total_duration=%.2fs",
@@ -322,11 +294,6 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 else:
                     history_messages = msgs
 
-            # Start title generation in parallel (don't await yet)
-            title_task = None
-            if is_first_message:
-                title_task = asyncio.create_task(generate_conversation_title(request.content))
-
             try:
                 route_info = await route_message(user_prompt, history_messages)
             except Exception as exc:
@@ -338,11 +305,23 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 route_info.get("reason"),
             )
 
+            # Start title generation after routing; skip for trivial reasons to save time
+            title_task = None
+            title_reason = route_info.get("reason", "").lower()
+            if is_first_message and "trivial" not in title_reason:
+                title_task = asyncio.create_task(generate_conversation_title(request.content))
+
             use_single_agent = route_info.get("mode") == "single"
+            route_reason = (route_info.get("reason") or "").lower()
+            quick_allow_tools = not ("trivial" in route_reason)
             if use_single_agent:
                 yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
                 stage1_start = time.perf_counter()
-                stage1_entry, stage3_entry = await run_quick_response(user_prompt, history_messages)
+                stage1_entry, stage3_entry = await run_quick_response(
+                    user_prompt,
+                    history_messages,
+                    allow_tools=quick_allow_tools,
+                )
                 stage1_results = [stage1_entry]
                 stage2_results = []
                 metadata_payload = {"mode": "single_agent", "agent": stage1_entry["model"], "route": route_info}

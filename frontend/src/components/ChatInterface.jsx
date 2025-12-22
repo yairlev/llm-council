@@ -14,8 +14,12 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [dropNotice, setDropNotice] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const dragDepthRef = useRef(0);
+  const dropNoticeTimerRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,14 +57,20 @@ export default function ChatInterface({
   const handleFilesSelected = async (fileList) => {
     if (!conversationId) return;
     const files = Array.from(fileList);
+    const added = [];
     for (const file of files) {
       try {
         const metadata = await api.uploadAttachment(conversationId, file);
-        setAttachments((prev) => [...prev, metadata]);
+        added.push(metadata);
       } catch (err) {
         console.error('Failed to upload attachment:', err);
       }
     }
+    if (added.length) {
+      setAttachments((prev) => [...prev, ...added]);
+      showDropNotice(added);
+    }
+    return added;
   };
 
   const handleFileInputChange = async (e) => {
@@ -72,6 +82,8 @@ export default function ChatInterface({
 
   const handleDrop = async (e) => {
     e.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDragActive(false);
     if (isLoading || !conversationId) return;
     if (e.dataTransfer.files?.length) {
       await handleFilesSelected(e.dataTransfer.files);
@@ -79,7 +91,38 @@ export default function ChatInterface({
   };
 
   const handleDragOver = (e) => {
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleDragEnter = (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
     e.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDragActive(true);
+  };
+
+  const handleDragLeave = (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
+    if (dragDepthRef.current === 0) {
+      setIsDragActive(false);
+    }
+  };
+
+  const showDropNotice = (addedItems) => {
+    if (dropNoticeTimerRef.current) {
+      clearTimeout(dropNoticeTimerRef.current);
+    }
+    const names = addedItems.map((item) => item.filename || item.name || 'file');
+    const label =
+      names.length > 3
+        ? `${names.slice(0, 3).join(', ')} +${names.length - 3} more`
+        : names.join(', ');
+    setDropNotice(`Added ${names.length} file${names.length > 1 ? 's' : ''}: ${label}`);
+    dropNoticeTimerRef.current = setTimeout(() => setDropNotice(''), 2000);
   };
 
   const removeAttachment = async (attachment) => {
@@ -119,21 +162,25 @@ export default function ChatInterface({
     );
   };
 
-  if (!conversation) {
-    return (
-      <div className="chat-interface">
-        <div className="empty-state">
-          <h2>Welcome to LLM Council</h2>
-          <p>Create a new conversation to get started</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="chat-interface">
+    <div
+      className={`chat-interface ${isDragActive ? 'drag-active' : ''}`}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+    >
+      {dropNotice && <div className="drop-toast">{dropNotice}</div>}
+      {isDragActive && (
+        <div className="drag-overlay">
+          <div className="drag-overlay-inner">
+            <div className="drag-overlay-icon">⇪</div>
+            <div className="drag-overlay-text">Drop files to attach</div>
+          </div>
+        </div>
+      )}
       <div className="messages-container">
-        {conversation.messages.length === 0 ? (
+        {!conversation || conversation.messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
             <p>Ask a question to consult the LLM Council</p>
@@ -214,8 +261,6 @@ export default function ChatInterface({
       <form
         className="input-form"
         onSubmit={handleSubmit}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
       >
         <div className="composer-area">
           <div className="attachment-dropzone">

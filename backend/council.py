@@ -37,6 +37,7 @@ from .config import (
     ADK_CHAIRMAN_MODEL,
     ADK_COUNCIL_MEMBERS,
     ADK_FILE_TOOL_MAX_BYTES,
+    ADK_ROUTER_MODEL,
     ADK_TITLE_MODEL,
     ADK_WEB_TOOL_MAX_CHARS,
     GOOGLE_API_KEY,
@@ -314,14 +315,14 @@ class AdkCouncilRuntime:
             name="TitleScribe",
             description="Creates concise titles for council sessions.",
             instruction="Respond with 3-5 word descriptive titles. No punctuation.",
-            tools=self._tools_for_model(ADK_TITLE_MODEL),
+            tools=[],
         )
         self._router_agent = Agent(
-            model=_resolve_model_spec(ADK_CHAIRMAN_MODEL),
+            model=_resolve_model_spec(ADK_ROUTER_MODEL),
             name="Delegator",
             description="Decides whether to run single-agent or council workflow.",
             instruction="Output JSON specifying routing decision.",
-            tools=self._tools_for_model(ADK_CHAIRMAN_MODEL),
+            tools=[],
         )
 
     async def collect_stage1(
@@ -441,11 +442,15 @@ class AdkCouncilRuntime:
         self,
         user_query: str,
         history_messages: List[Dict[str, Any]],
+        allow_tools: bool = True,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if not self._council_agents:
             raise RuntimeError("No council agents configured.")
         timer = time.perf_counter()
         agent = self._council_agents[0]
+        agent_for_run = agent.clone()
+        if not allow_tools:
+            agent_for_run.tools = []
         history_section = _build_history_section(history_messages)
         prompt = _format_prompt(
             STAGE1_PROMPT_TEMPLATE,
@@ -453,12 +458,13 @@ class AdkCouncilRuntime:
             user_query=user_query,
             history_section=history_section,
         )
-        response_text = await self._run_agent(agent, prompt)
+        response_text = await self._run_agent(agent_for_run, prompt)
         text = response_text or "Unable to provide a response at this time."
         stage_entry = {"model": agent.name, "response": text}
         logger.info(
-            "single agent quick response model=%s duration=%.2fs",
+            "single agent quick response model=%s allow_tools=%s duration=%.2fs",
             agent.name,
+            allow_tools,
             time.perf_counter() - timer,
         )
         return stage_entry, {
@@ -821,9 +827,10 @@ async def route_message(
 async def run_quick_response(
     user_query: str,
     history_messages: Optional[List[Dict[str, Any]]] = None,
+    allow_tools: bool = True,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     history = history_messages or []
-    return await _get_runtime().quick_response(user_query, history)
+    return await _get_runtime().quick_response(user_query, history, allow_tools=allow_tools)
 
 
 async def run_full_council(

@@ -8,6 +8,7 @@
   padding: 32px;
   height: 100%;
   min-width: 0;
+  position: relative;
 }
 
 .messages-container {
@@ -356,4 +357,84 @@
   font-size: 15px;
   line-height: 1.65;
   color: var(--text-primary);
+}
+
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 32px;
+  background: rgba(15, 15, 15, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.drag-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #f4f4f4;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.drag-overlay-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.chat-interface.drag-active {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25), var(--shadow-soft);
+}
+
+.drop-toast {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fdfdfd;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  backdrop-filter: blur(6px);
+  animation: fadeInOut 1.8s ease;
+}
+
+@keyframes fadeInOut {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0.85;
+  }
 }

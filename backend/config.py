@@ -63,7 +63,8 @@ def _parse_adk_members(raw_value: str | None) -> List[Dict[str, str]]:
 # ADK-specific configuration
 ADK_COUNCIL_MEMBERS = _parse_adk_members(os.getenv("ADK_COUNCIL_MEMBERS"))
 ADK_CHAIRMAN_MODEL = _normalize_model_name(os.getenv("ADK_CHAIRMAN_MODEL", "gemini-3-pro-preview"))
-ADK_TITLE_MODEL = _normalize_model_name(os.getenv("ADK_TITLE_MODEL", ADK_CHAIRMAN_MODEL))
+ADK_ROUTER_MODEL = _normalize_model_name(os.getenv("ADK_ROUTER_MODEL", "gemini-3-flash-preview"))
+ADK_TITLE_MODEL = _normalize_model_name(os.getenv("ADK_TITLE_MODEL", ADK_ROUTER_MODEL))
 ADK_FILE_TOOL_MAX_BYTES = int(os.getenv("ADK_FILE_TOOL_MAX_BYTES", "20000"))
 ADK_WEB_TOOL_MAX_CHARS = int(os.getenv("ADK_WEB_TOOL_MAX_CHARS", "4000"))
 ADK_ALLOWED_FILE_ROOT = Path(os.getenv("ADK_ALLOWED_FILE_ROOT", str(REPO_ROOT))).resolve()
