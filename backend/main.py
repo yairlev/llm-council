@@ -10,7 +10,16 @@ import json
 import asyncio
 
 from . import storage
-from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .council import (
+    run_full_council,
+    generate_conversation_title,
+    stage1_collect_responses,
+    stage2_collect_rankings,
+    stage3_synthesize_final,
+    calculate_aggregate_rankings,
+    run_quick_response,
+    route_message,
+)
 
 app = FastAPI(title="LLM Council API")
 
@@ -109,11 +118,33 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
 
-    # Run the 3-stage council process
-    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content,
-        history_messages,
-    )
+    try:
+        route_info = await route_message(request.content, history_messages)
+    except Exception as exc:
+        route_info = {"mode": "council", "reason": f"router_error:{exc}"}
+
+    use_single_agent = route_info.get("mode") == "single"
+
+    if use_single_agent:
+        stage1_entry, stage3_entry = await run_quick_response(
+            request.content,
+            history_messages,
+        )
+        stage1_results = [stage1_entry]
+        stage2_results: List[Dict[str, Any]] = []
+        stage3_result = stage3_entry
+        metadata = {
+            "mode": "single_agent",
+            "agent": stage1_entry["model"],
+            "route": route_info,
+        }
+    else:
+        # Run the 3-stage council process
+        stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
+            request.content,
+            history_messages,
+        )
+        metadata = {**metadata, "route": route_info}
 
     # Add assistant message with all stages
     storage.add_assistant_message(
@@ -159,26 +190,52 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 else:
                     history_messages = msgs
 
+            try:
+                route_info = await route_message(request.content, history_messages)
+            except Exception as exc:
+                route_info = {"mode": "council", "reason": f"router_error:{exc}"}
+
             # Start title generation in parallel (don't await yet)
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
-            # Stage 1: Collect responses
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(request.content, history_messages)
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            use_single_agent = route_info.get("mode") == "single"
+            if use_single_agent:
+                yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+                stage1_entry, stage3_entry = await run_quick_response(request.content, history_messages)
+                stage1_results = [stage1_entry]
+                stage2_results = []
+                metadata_payload = {"mode": "single_agent", "agent": stage1_entry["model"], "route": route_info}
+                yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
-            # Stage 2: Collect rankings
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results, history_messages)
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+                yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': metadata_payload})}\n\n"
 
-            # Stage 3: Synthesize final answer
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results, history_messages)
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+                yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                stage3_result = stage3_entry
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            else:
+                # Stage 1: Collect responses
+                yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+                stage1_results = await stage1_collect_responses(request.content, history_messages)
+                yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+
+                # Stage 2: Collect rankings
+                yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+                stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results, history_messages)
+                aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+                metadata_payload = {
+                    'label_to_model': label_to_model,
+                    'aggregate_rankings': aggregate_rankings,
+                    'route': route_info,
+                }
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': metadata_payload})}\n\n"
+
+                # Stage 3: Synthesize final answer
+                yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results, history_messages)
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
             if title_task:

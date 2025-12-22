@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import json
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
 from urllib.parse import urlparse
@@ -16,12 +18,16 @@ from urllib.parse import urlparse
 try:
     from google.adk.agents import Agent
     from google.adk.tools import FunctionTool
-    from google.adk.tools.google_search_tool import GoogleSearchTool
+    from google.adk.tools.google_search_agent_tool import (
+        GoogleSearchAgentTool,
+        create_google_search_agent,
+    )
     from google.adk.utils.model_name_utils import is_gemini_model
     from google.adk.runners import Runner
     from google.adk.sessions.in_memory_session_service import InMemorySessionService
     from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
     from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+    from google.adk.models.lite_llm import LiteLlm
     from google.genai import types as genai_types
 except ImportError as exc:  # pragma: no cover - surfaced at runtime for clarity
     raise RuntimeError(
@@ -41,6 +47,8 @@ from .config import (
 )
 
 logger = logging.getLogger(__name__)
+
+OPENROUTER_DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
 
 
 DEFAULT_BROWSE_HEADERS = {
@@ -106,6 +114,20 @@ strongest arguments that emerged."""
 TITLE_PROMPT_TEMPLATE = """Generate a concise 3-5 word title (no quotes) that summarizes this question:
 
 {user_query}
+"""
+
+ROUTER_PROMPT_TEMPLATE = """{history_section}User question: {user_query}
+
+Decide whether to run the full council (multi-stage deliberation) or just have a single analyst respond directly.
+
+Return JSON exactly in the form:
+{{
+  "mode": "single" | "council",
+  "reason": "<brief rationale>"
+}}
+
+Use "single" for trivial greetings, acknowledgements, or clearly scoped facts.
+Use "council" when the user needs multi-step reasoning, comparisons, tool usage, or oversight.
 """
 
 def _format_conversation_history(messages: List[Dict[str, Any]]) -> str:
@@ -199,7 +221,6 @@ class AdkCouncilRuntime:
             raise RuntimeError("GOOGLE_API_KEY must be set to run the ADK council.")
 
         self._base_tools = [BROWSE_WEB_TOOL, READ_FILE_TOOL]
-        self._google_search_tool = google_search
         self._app_name = "llm-council-adk"
         self._user_id = "local-user"
         self._session_service = InMemorySessionService()
@@ -210,17 +231,24 @@ class AdkCouncilRuntime:
             for index, member in enumerate(ADK_COUNCIL_MEMBERS, start=1)
         ]
         self._chairman = Agent(
-            model=ADK_CHAIRMAN_MODEL,
+            model=_resolve_model_spec(ADK_CHAIRMAN_MODEL),
             name="Chairman",
             description="Synthesizes the council output into a final answer.",
             instruction="Combine peer work into a cohesive, well-balanced response.",
             tools=self._tools_for_model(ADK_CHAIRMAN_MODEL),
         )
         self._title_agent = Agent(
-            model=ADK_TITLE_MODEL,
+            model=_resolve_model_spec(ADK_TITLE_MODEL),
             name="TitleScribe",
             description="Creates concise titles for council sessions.",
             instruction="Respond with 3-5 word descriptive titles. No punctuation.",
+            tools=self._tools_for_model(ADK_TITLE_MODEL),
+        )
+        self._router_agent = Agent(
+            model=_resolve_model_spec(ADK_CHAIRMAN_MODEL),
+            name="Delegator",
+            description="Decides whether to run single-agent or council workflow.",
+            instruction="Output JSON specifying routing decision.",
         )
 
     async def collect_stage1(
@@ -230,7 +258,8 @@ class AdkCouncilRuntime:
     ) -> List[Dict[str, Any]]:
         history_section = _build_history_section(history_messages)
         prompts = [
-            STAGE1_PROMPT_TEMPLATE.format(
+            _format_prompt(
+                STAGE1_PROMPT_TEMPLATE,
                 agent_name=agent.name,
                 user_query=user_query,
                 history_section=history_section,
@@ -260,14 +289,14 @@ class AdkCouncilRuntime:
             for label, result in zip(labels, stage1_results)
         )
         history_section = _build_history_section(history_messages)
-        prompt = STAGE2_PROMPT_TEMPLATE.format(
-            agent_name="{agent_name}",
-            user_query=user_query,
-            responses_text=responses_text,
-            history_section=history_section,
-        )
         prompts = [
-            prompt.format(agent_name=agent.name)
+            _format_prompt(
+                STAGE2_PROMPT_TEMPLATE,
+                agent_name=agent.name,
+                user_query=user_query,
+                responses_text=responses_text,
+                history_section=history_section,
+            )
             for agent in self._council_agents
         ]
         raw_rankings = await self._gather_agent_runs(prompts)
@@ -297,7 +326,8 @@ class AdkCouncilRuntime:
             f"{item['model']}:\n{item['ranking']}" for item in stage2_results
         )
         history_section = _build_history_section(history_messages)
-        prompt = STAGE3_PROMPT_TEMPLATE.format(
+        prompt = _format_prompt(
+            STAGE3_PROMPT_TEMPLATE,
             user_query=user_query,
             stage1_text=stage1_text or "No responses collected.",
             stage2_text=stage2_text or "No peer reviews collected.",
@@ -310,12 +340,49 @@ class AdkCouncilRuntime:
         }
 
     async def generate_title(self, user_query: str) -> str:
-        prompt = TITLE_PROMPT_TEMPLATE.format(user_query=user_query)
+        prompt = _format_prompt(TITLE_PROMPT_TEMPLATE, user_query=user_query)
         text = await self._run_agent(self._title_agent, prompt)
         if not text:
             return "New Conversation"
         clean = text.strip().strip("\"'")
         return clean[:60] or "New Conversation"
+
+    async def quick_response(
+        self,
+        user_query: str,
+        history_messages: List[Dict[str, Any]],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        if not self._council_agents:
+            raise RuntimeError("No council agents configured.")
+        agent = self._council_agents[0]
+        history_section = _build_history_section(history_messages)
+        prompt = _format_prompt(
+            STAGE1_PROMPT_TEMPLATE,
+            agent_name=agent.name,
+            user_query=user_query,
+            history_section=history_section,
+        )
+        response_text = await self._run_agent(agent, prompt)
+        text = response_text or "Unable to provide a response at this time."
+        stage_entry = {"model": agent.name, "response": text}
+        return stage_entry, {
+            "model": agent.name,
+            "response": text,
+        }
+
+    async def route_request(
+        self,
+        user_query: str,
+        history_messages: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        history_section = _build_history_section(history_messages)
+        prompt = _format_prompt(
+            ROUTER_PROMPT_TEMPLATE,
+            user_query=user_query,
+            history_section=history_section,
+        )
+        decision_text = await self._run_agent(self._router_agent, prompt)
+        return _parse_route_decision(decision_text)
 
     async def _gather_agent_runs(self, prompts: List[str]) -> List[Optional[str]]:
         tasks = [
@@ -378,7 +445,7 @@ class AdkCouncilRuntime:
         if not model:
             raise ValueError("Each ADK council member must define a model.")
         return Agent(
-            model=model,
+            model=_resolve_model_spec(model),
             name=name,
             description=f"{name} uses {model} to contribute unique insights.",
             instruction=COUNCIL_MEMBER_INSTRUCTION,
@@ -388,8 +455,41 @@ class AdkCouncilRuntime:
     def _tools_for_model(self, model: str) -> List[Any]:
         tools: List[Any] = list(self._base_tools)
         if is_gemini_model(model):
-            tools.append(self._google_search_tool)
+            search_agent = create_google_search_agent(model)
+            search_agent.name = "google_search"
+            tools.append(GoogleSearchAgentTool(search_agent))
         return tools
+
+def _resolve_model_spec(model: Union[str, LiteLlm, None]) -> Union[str, LiteLlm, None]:
+    if not model or isinstance(model, LiteLlm):
+        return model
+    if model.startswith("openrouter/"):
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY must be set to use OpenRouter-backed agents."
+            )
+        api_base = os.getenv("OPENROUTER_API_BASE", OPENROUTER_DEFAULT_API_BASE)
+        return LiteLlm(model=model, api_key=api_key, api_base=api_base)
+    return model
+
+
+def _parse_route_decision(raw_text: Optional[str]) -> Dict[str, Any]:
+    default = {"mode": "council", "reason": "router_default"}
+    if not raw_text:
+        return default
+    try:
+        data = json.loads(raw_text)
+        mode = str(data.get("mode", "council")).strip().lower()
+        reason = data.get("reason") or "router_response"
+        if mode not in ("single", "council"):
+            mode = "council"
+        return {"mode": mode, "reason": reason}
+    except Exception:
+        cleaned = raw_text.strip().lower()
+        if "single" in cleaned and "council" not in cleaned:
+            return {"mode": "single", "reason": raw_text[:200]}
+        return default
 
 
 def _clean_html(raw: str) -> str:
@@ -435,6 +535,20 @@ def _build_browse_headers(url: str) -> Dict[str, str]:
         headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         headers["Referer"] = "https://github.com/"
     return headers
+
+
+def _escape_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
+
+
+def _format_prompt(template: str, **kwargs: Any) -> str:
+    safe_kwargs = {}
+    for key, value in kwargs.items():
+        if isinstance(value, str):
+            safe_kwargs[key] = _escape_braces(value)
+        else:
+            safe_kwargs[key] = value
+    return template.format(**safe_kwargs)
 
 
 def _coerce_response_text(result: Any) -> Optional[str]:
@@ -523,6 +637,22 @@ async def stage3_synthesize_final(
 
 async def generate_conversation_title(user_query: str) -> str:
     return await _get_runtime().generate_title(user_query)
+
+
+async def route_message(
+    user_query: str,
+    history_messages: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    history = history_messages or []
+    return await _get_runtime().route_request(user_query, history)
+
+
+async def run_quick_response(
+    user_query: str,
+    history_messages: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    history = history_messages or []
+    return await _get_runtime().quick_response(user_query, history)
 
 
 async def run_full_council(
