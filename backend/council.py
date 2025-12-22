@@ -10,6 +10,7 @@ import re
 import uuid
 from pathlib import Path
 import json
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
@@ -328,6 +329,7 @@ class AdkCouncilRuntime:
         user_query: str,
         history_messages: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        timer = time.perf_counter()
         history_section = _build_history_section(history_messages)
         prompts = [
             _format_prompt(
@@ -343,6 +345,11 @@ class AdkCouncilRuntime:
         for agent, text in zip(self._council_agents, results):
             if text:
                 stage1.append({"model": agent.name, "response": text})
+        logger.info(
+            "stage1 collected responses=%d duration=%.2fs",
+            len(stage1),
+            time.perf_counter() - timer,
+        )
         return stage1
 
     async def collect_stage2(
@@ -351,6 +358,7 @@ class AdkCouncilRuntime:
         stage1_results: List[Dict[str, Any]],
         history_messages: List[Dict[str, Any]],
     ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+        timer = time.perf_counter()
         labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
         label_to_model = {
             label: result["model"]
@@ -382,6 +390,11 @@ class AdkCouncilRuntime:
                 "ranking": ranking_text,
                 "parsed_ranking": parsed,
             })
+        logger.info(
+            "stage2 collected rankings=%d duration=%.2fs",
+            len(stage2),
+            time.perf_counter() - timer,
+        )
         return stage2, label_to_model
 
     async def synthesize_final(
@@ -391,6 +404,7 @@ class AdkCouncilRuntime:
         stage2_results: List[Dict[str, Any]],
         history_messages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
+        timer = time.perf_counter()
         stage1_text = "\n\n".join(
             f"{item['model']}:\n{item['response']}" for item in stage1_results
         )
@@ -406,6 +420,10 @@ class AdkCouncilRuntime:
             history_section=history_section,
         )
         text = await self._run_agent(self._chairman, prompt)
+        logger.info(
+            "stage3 synthesis complete duration=%.2fs",
+            time.perf_counter() - timer,
+        )
         return {
             "model": self._chairman.name,
             "response": text or "Unable to synthesize a response at this time.",
@@ -426,6 +444,7 @@ class AdkCouncilRuntime:
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if not self._council_agents:
             raise RuntimeError("No council agents configured.")
+        timer = time.perf_counter()
         agent = self._council_agents[0]
         history_section = _build_history_section(history_messages)
         prompt = _format_prompt(
@@ -437,6 +456,11 @@ class AdkCouncilRuntime:
         response_text = await self._run_agent(agent, prompt)
         text = response_text or "Unable to provide a response at this time."
         stage_entry = {"model": agent.name, "response": text}
+        logger.info(
+            "single agent quick response model=%s duration=%.2fs",
+            agent.name,
+            time.perf_counter() - timer,
+        )
         return stage_entry, {
             "model": agent.name,
             "response": text,
@@ -453,8 +477,16 @@ class AdkCouncilRuntime:
             user_query=user_query,
             history_section=history_section,
         )
+        timer = time.perf_counter()
         decision_text = await self._run_agent(self._router_agent, prompt)
-        return _parse_route_decision(decision_text)
+        decision = _parse_route_decision(decision_text)
+        logger.info(
+            "router decision mode=%s reason=%s duration=%.2fs",
+            decision.get("mode"),
+            decision.get("reason"),
+            time.perf_counter() - timer,
+        )
+        return decision
 
     async def _gather_agent_runs(self, prompts: List[str]) -> List[Optional[str]]:
         tasks = [
@@ -472,6 +504,7 @@ class AdkCouncilRuntime:
         return results
 
     async def _run_agent(self, agent: Agent, prompt: str) -> Optional[str]:
+        timer = time.perf_counter()
         session = await self._session_service.create_session(
             app_name=self._app_name,
             user_id=self._user_id,
@@ -509,6 +542,12 @@ class AdkCouncilRuntime:
                 user_id=self._user_id,
                 session_id=session.id,
             )
+        logger.info(
+            "agent run complete agent=%s duration=%.2fs has_response=%s",
+            agent.name,
+            time.perf_counter() - timer,
+            bool(final_text),
+        )
         return final_text
 
     def _build_member_agent(self, member: Dict[str, str], index: int) -> Agent:

@@ -8,6 +8,10 @@ from typing import List, Dict, Any
 import uuid
 import json
 import asyncio
+import logging
+import os
+import time
+import re
 
 from . import storage, uploads
 from .council import (
@@ -21,6 +25,50 @@ from .council import (
     route_message,
     build_prompt_with_attachments,
 )
+
+LOG_LEVEL = os.getenv("LLM_COUNCIL_LOG_LEVEL", "INFO").upper()
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+root_logger = logging.getLogger()
+if not root_logger.handlers:
+    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+else:
+    root_logger.setLevel(LOG_LEVEL)
+
+logger = logging.getLogger("llm_council.api")
+
+
+def _is_trivial_greeting(text: str) -> bool:
+    """Lightweight guard to avoid heavy council flow for simple greetings."""
+    if not text:
+        return False
+    normalized = re.sub(r"[^a-zA-Z0-9\\s]", " ", text).lower().strip()
+    if len(normalized) > 60:
+        return False
+    tokens = normalized.split()
+    if not tokens:
+        return False
+    greetings = {"hi", "hello", "hey", "howdy", "greetings", "yo"}
+    common_phrases = {
+        "hi there",
+        "hello there",
+        "hey there",
+        "hi",
+        "hello",
+        "hey",
+    }
+    if normalized in common_phrases:
+        return True
+    if tokens[0] in greetings and len(tokens) <= 6:
+        return True
+    return False
+
+
+def _build_greeting_response() -> Dict[str, Any]:
+    return {
+        "model": "system",
+        "response": "Hi there! I'm here and ready to help. What would you like to do?",
+    }
 
 app = FastAPI(title="LLM Council API")
 
@@ -120,6 +168,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     Send a message and run the 3-stage council process.
     Returns the complete response with all stages.
     """
+    start_overall = time.perf_counter()
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
@@ -133,6 +182,13 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     if len(attachment_records) != len(attachment_ids):
         raise HTTPException(status_code=400, detail="One or more attachments were not found.")
     user_prompt = build_prompt_with_attachments(request.content, attachment_records)
+
+    logger.info(
+        "message request conversation_id=%s first_message=%s attachments=%d",
+        conversation_id,
+        is_first_message,
+        len(attachment_ids),
+    )
 
     # Add user message
     storage.add_user_message(conversation_id, request.content, attachments=attachment_records)
@@ -155,13 +211,26 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         route_info = await route_message(user_prompt, history_messages)
     except Exception as exc:
         route_info = {"mode": "council", "reason": f"router_error:{exc}"}
+    logger.info(
+        "router decision conversation_id=%s mode=%s reason=%s",
+        conversation_id,
+        route_info.get("mode"),
+        route_info.get("reason"),
+    )
 
     use_single_agent = route_info.get("mode") == "single"
 
     if use_single_agent:
+        stage1_start = time.perf_counter()
         stage1_entry, stage3_entry = await run_quick_response(
             user_prompt,
             history_messages,
+        )
+        logger.info(
+            "single-agent complete conversation_id=%s model=%s duration=%.2fs",
+            conversation_id,
+            stage1_entry.get("model"),
+            time.perf_counter() - stage1_start,
         )
         stage1_results = [stage1_entry]
         stage2_results: List[Dict[str, Any]] = []
@@ -173,9 +242,17 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         }
     else:
         # Run the 3-stage council process
+        stage1_start = time.perf_counter()
         stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
             user_prompt,
             history_messages,
+        )
+        logger.info(
+            "council stages complete conversation_id=%s stage1=%d stage2=%d duration=%.2fs",
+            conversation_id,
+            len(stage1_results),
+            len(stage2_results),
+            time.perf_counter() - stage1_start,
         )
         metadata = {**metadata, "route": route_info}
 
@@ -186,6 +263,13 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         stage2_results,
         stage3_result,
         metadata=metadata,
+    )
+
+    logger.info(
+        "response stored conversation_id=%s mode=%s total_duration=%.2fs",
+        conversation_id,
+        metadata.get("mode"),
+        time.perf_counter() - start_overall,
     )
 
     # Return the complete response with metadata
@@ -203,6 +287,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     Send a message and stream the 3-stage council process.
     Returns Server-Sent Events as each stage completes.
     """
+    start_overall = time.perf_counter()
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
@@ -219,6 +304,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
     async def event_generator():
         try:
+            logger.info(
+                "streaming message request conversation_id=%s first_message=%s attachments=%d",
+                conversation_id,
+                is_first_message,
+                len(attachment_ids),
+            )
             # Add user message
             storage.add_user_message(conversation_id, request.content, attachments=attachment_records)
             uploads.mark_attachments_linked(conversation_id, attachment_ids)
@@ -240,30 +331,57 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 route_info = await route_message(user_prompt, history_messages)
             except Exception as exc:
                 route_info = {"mode": "council", "reason": f"router_error:{exc}"}
+            logger.info(
+                "router decision (stream) conversation_id=%s mode=%s reason=%s",
+                conversation_id,
+                route_info.get("mode"),
+                route_info.get("reason"),
+            )
 
             use_single_agent = route_info.get("mode") == "single"
             if use_single_agent:
                 yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+                stage1_start = time.perf_counter()
                 stage1_entry, stage3_entry = await run_quick_response(user_prompt, history_messages)
                 stage1_results = [stage1_entry]
                 stage2_results = []
                 metadata_payload = {"mode": "single_agent", "agent": stage1_entry["model"], "route": route_info}
                 yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+                logger.info(
+                    "single-agent (stream) stage1 complete conversation_id=%s model=%s duration=%.2fs",
+                    conversation_id,
+                    stage1_entry.get("model"),
+                    time.perf_counter() - stage1_start,
+                )
 
                 yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
                 yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': metadata_payload})}\n\n"
 
                 yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                stage3_start = time.perf_counter()
                 stage3_result = stage3_entry
                 yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+                logger.info(
+                    "single-agent (stream) stage3 complete conversation_id=%s duration=%.2fs",
+                    conversation_id,
+                    time.perf_counter() - stage3_start,
+                )
             else:
                 # Stage 1: Collect responses
                 yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+                stage1_start = time.perf_counter()
                 stage1_results = await stage1_collect_responses(user_prompt, history_messages)
                 yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+                logger.info(
+                    "stage1 complete (stream) conversation_id=%s count=%d duration=%.2fs",
+                    conversation_id,
+                    len(stage1_results),
+                    time.perf_counter() - stage1_start,
+                )
 
                 # Stage 2: Collect rankings
                 yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+                stage2_start = time.perf_counter()
                 stage2_results, label_to_model = await stage2_collect_rankings(user_prompt, stage1_results, history_messages)
                 aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
                 metadata_payload = {
@@ -272,11 +390,23 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                     'route': route_info,
                 }
                 yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': metadata_payload})}\n\n"
+                logger.info(
+                    "stage2 complete (stream) conversation_id=%s count=%d duration=%.2fs",
+                    conversation_id,
+                    len(stage2_results),
+                    time.perf_counter() - stage2_start,
+                )
 
                 # Stage 3: Synthesize final answer
                 yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                stage3_start = time.perf_counter()
                 stage3_result = await stage3_synthesize_final(user_prompt, stage1_results, stage2_results, history_messages)
                 yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+                logger.info(
+                    "stage3 complete (stream) conversation_id=%s duration=%.2fs",
+                    conversation_id,
+                    time.perf_counter() - stage3_start,
+                )
 
             # Wait for title generation if it was started
             if title_task:
@@ -295,9 +425,16 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Send completion event
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            logger.info(
+                "streaming response stored conversation_id=%s mode=%s total_duration=%.2fs",
+                conversation_id,
+                metadata_payload.get("mode"),
+                time.perf_counter() - start_overall,
+            )
 
         except Exception as e:
             # Send error event
+            logger.exception("streaming pipeline failed conversation_id=%s", conversation_id)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(
