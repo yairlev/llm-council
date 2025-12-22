@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 import json
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 import httpx
 from urllib.parse import urlparse
@@ -849,31 +849,112 @@ async def run_quick_response(
     return await _get_runtime().quick_response(user_query, history, allow_tools=allow_tools)
 
 
-async def run_full_council(
+# Type alias for the optional streaming callback
+StreamCallback = Optional[Callable[[str, Any], Awaitable[None]]]
+
+
+async def run_pipeline(
     user_query: str,
-    history_messages: Optional[List[Dict[str, Any]]] = None,
-) -> Tuple[List, List, Dict, Dict]:
-    history = history_messages or []
-    stage1_results = await stage1_collect_responses(user_query, history)
-    if not stage1_results:
-        return [], [], {
-            "model": "error",
-            "response": "All ADK agents failed to respond. Please try again."
-        }, {}
+    history_messages: List[Dict[str, Any]],
+    on_event: StreamCallback = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    """
+    Unified pipeline for both single-agent and council workflows.
 
-    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results, history)
-    aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+    Args:
+        user_query: The user's question/prompt
+        history_messages: Previous conversation messages
+        on_event: Optional async callback for streaming events.
+                  Called with (event_type, data) for each stage transition.
+                  Event types: 'route', 'stage1_start', 'stage1_complete',
+                               'stage2_start', 'stage2_complete',
+                               'stage3_start', 'stage3_complete'
 
-    stage3_result = await stage3_synthesize_final(
-        user_query,
-        stage1_results,
-        stage2_results,
-        history,
-    )
-    metadata = {
-        "label_to_model": label_to_model,
-        "aggregate_rankings": aggregate_rankings,
-    }
+    Returns:
+        Tuple of (stage1_results, stage2_results, stage3_result, metadata)
+    """
+    async def emit(event_type: str, data: Any = None) -> None:
+        if on_event:
+            await on_event(event_type, data)
+
+    # Route the message
+    try:
+        route_info = await route_message(user_query, history_messages)
+    except Exception as exc:
+        route_info = {"mode": "council", "reason": f"router_error:{exc}"}
+
+    await emit("route", route_info)
+
+    use_single_agent = route_info.get("mode") == "single"
+    route_reason = (route_info.get("reason") or "").lower()
+
+    if use_single_agent:
+        # Single-agent fast path
+        quick_allow_tools = "trivial" not in route_reason
+
+        await emit("stage1_start")
+        stage1_entry, stage3_entry = await run_quick_response(
+            user_query,
+            history_messages,
+            allow_tools=quick_allow_tools,
+        )
+        stage1_results = [stage1_entry]
+        await emit("stage1_complete", stage1_results)
+
+        # Empty stage2 for single-agent mode
+        await emit("stage2_start")
+        stage2_results: List[Dict[str, Any]] = []
+        metadata = {
+            "mode": "single_agent",
+            "agent": stage1_entry["model"],
+            "route": route_info,
+        }
+        await emit("stage2_complete", {"data": stage2_results, "metadata": metadata})
+
+        await emit("stage3_start")
+        stage3_result = stage3_entry
+        await emit("stage3_complete", stage3_result)
+
+    else:
+        # Full council deliberation
+        await emit("stage1_start")
+        stage1_results = await stage1_collect_responses(user_query, history_messages)
+        await emit("stage1_complete", stage1_results)
+
+        if not stage1_results:
+            stage2_results = []
+            metadata = {"route": route_info}
+            await emit("stage2_start")
+            await emit("stage2_complete", {"data": stage2_results, "metadata": metadata})
+            await emit("stage3_start")
+            stage3_result = {
+                "model": "error",
+                "response": "All ADK agents failed to respond. Please try again."
+            }
+            await emit("stage3_complete", stage3_result)
+            return stage1_results, stage2_results, stage3_result, metadata
+
+        await emit("stage2_start")
+        stage2_results, label_to_model = await stage2_collect_rankings(
+            user_query, stage1_results, history_messages
+        )
+        aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+        metadata = {
+            "label_to_model": label_to_model,
+            "aggregate_rankings": aggregate_rankings,
+            "route": route_info,
+        }
+        await emit("stage2_complete", {"data": stage2_results, "metadata": metadata})
+
+        await emit("stage3_start")
+        stage3_result = await stage3_synthesize_final(
+            user_query,
+            stage1_results,
+            stage2_results,
+            history_messages,
+        )
+        await emit("stage3_complete", stage3_result)
+
     return stage1_results, stage2_results, stage3_result, metadata
 
 
