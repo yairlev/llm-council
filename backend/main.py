@@ -184,7 +184,8 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         conversation_id,
         stage1_results,
         stage2_results,
-        stage3_result
+        stage3_result,
+        metadata=metadata,
     )
 
     # Return the complete response with metadata
@@ -288,7 +289,8 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 conversation_id,
                 stage1_results,
                 stage2_results,
-                stage3_result
+                stage3_result,
+                metadata=metadata_payload,
             )
 
             # Send completion event

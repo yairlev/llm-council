@@ -139,58 +139,66 @@ export default function ChatInterface({
             <p>Ask a question to consult the LLM Council</p>
           </div>
         ) : (
-          conversation.messages.map((msg, index) => (
-            <div key={index} className="message-group">
-              {msg.role === 'user' ? (
-                <div className="user-message">
-                  <div className="message-label">You</div>
-                  <div className="message-content">
-                    <div className="markdown-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+          conversation.messages.map((msg, index) => {
+            const isSingleMode = msg.metadata?.mode === 'single_agent';
+            return (
+              <div key={index} className="message-group">
+                {msg.role === 'user' ? (
+                  <div className="user-message">
+                    <div className="message-label">You</div>
+                    <div className="message-content">
+                      <div className="markdown-content">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                      {renderMessageAttachments(msg.attachments)}
                     </div>
-                    {renderMessageAttachments(msg.attachments)}
                   </div>
-                </div>
-              ) : (
-                <div className="assistant-message">
-                  <div className="message-label">LLM Council</div>
+                ) : (
+                  <div className="assistant-message">
+                    <div className="message-label">LLM Council</div>
+                    {isSingleMode ? (
+                      <SingleAgentResponse message={msg} />
+                    ) : (
+                      <>
+                        {/* Stage 1 */}
+                        {msg.loading?.stage1 && (
+                          <div className="stage-loading">
+                            <div className="spinner"></div>
+                            <span>Running Stage 1: Collecting individual responses...</span>
+                          </div>
+                        )}
+                        {msg.stage1 && <Stage1 responses={msg.stage1} />}
 
-                  {/* Stage 1 */}
-                  {msg.loading?.stage1 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 1: Collecting individual responses...</span>
-                    </div>
-                  )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
+                        {/* Stage 2 */}
+                        {msg.loading?.stage2 && (
+                          <div className="stage-loading">
+                            <div className="spinner"></div>
+                            <span>Running Stage 2: Peer rankings...</span>
+                          </div>
+                        )}
+                        {msg.stage2 && (
+                          <Stage2
+                            rankings={msg.stage2}
+                            labelToModel={msg.metadata?.label_to_model}
+                            aggregateRankings={msg.metadata?.aggregate_rankings}
+                          />
+                        )}
 
-                  {/* Stage 2 */}
-                  {msg.loading?.stage2 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 2: Peer rankings...</span>
-                    </div>
-                  )}
-                  {msg.stage2 && (
-                    <Stage2
-                      rankings={msg.stage2}
-                      labelToModel={msg.metadata?.label_to_model}
-                      aggregateRankings={msg.metadata?.aggregate_rankings}
-                    />
-                  )}
-
-                  {/* Stage 3 */}
-                  {msg.loading?.stage3 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 3: Final synthesis...</span>
-                    </div>
-                  )}
-                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
-                </div>
-              )}
-            </div>
-          ))
+                        {/* Stage 3 */}
+                        {msg.loading?.stage3 && (
+                          <div className="stage-loading">
+                            <div className="spinner"></div>
+                            <span>Running Stage 3: Final synthesis...</span>
+                          </div>
+                        )}
+                        {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
 
         {isLoading && (
@@ -262,6 +270,32 @@ export default function ChatInterface({
           Send
         </button>
       </form>
+    </div>
+  );
+}
+
+function SingleAgentResponse({ message }) {
+  const agentName =
+    message.metadata?.agent ||
+    message.stage1?.[0]?.model ||
+    message.stage3?.model ||
+    'Agent';
+  const body =
+    message.stage3?.response ||
+    message.stage3?.content ||
+    message.stage1?.[0]?.response ||
+    '';
+
+  return (
+    <div className="single-agent-response">
+      <div className="single-agent-label">
+        Single Agent Response ({agentName})
+      </div>
+      <div className="single-agent-content">
+        <div className="markdown-content">
+          <ReactMarkdown>{body}</ReactMarkdown>
+        </div>
+      </div>
     </div>
   );
 }

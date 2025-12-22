@@ -44,6 +44,11 @@ from .config import (
 from .services import get_artifact_service, APP_NAME, USER_ID
 from . import uploads
 
+try:
+    from pypdf import PdfReader
+except ImportError:  # pragma: no cover
+    PdfReader = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 OPENROUTER_DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
@@ -251,7 +256,7 @@ async def read_uploaded_artifact(
     if part is None:
         return {"error": "Attachment content is no longer available."}
 
-    text = _part_to_text(part)
+    text = _part_to_text(part, record.get("filename"), record.get("mime_type"))
     if text is None:
         return {
             "attachment_id": attachment_id,
@@ -586,14 +591,36 @@ def build_prompt_with_attachments(content: str, attachments: Optional[List[Dict[
     return "\n".join(lines)
 
 
-def _part_to_text(part: genai_types.Part) -> Optional[str]:
+def _part_to_text(part: genai_types.Part, filename: Optional[str], mime: Optional[str]) -> Optional[str]:
     if part.text:
         return part.text
     if part.inline_data and part.inline_data.data:
+        return _bytes_to_text(part.inline_data.data, filename, mime)
+    return None
+
+
+def _bytes_to_text(data: bytes, filename: Optional[str], mime_type: Optional[str]) -> Optional[str]:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in {".txt", ".md", ".py", ".js", ".ts", ".json"} or (mime_type or "").startswith("text/"):
         try:
-            return part.inline_data.data.decode("utf-8")
+            return data.decode("utf-8")
         except UnicodeDecodeError:
-            return part.inline_data.data.decode("latin-1", errors="replace")
+            return data.decode("latin-1", errors="replace")
+    if suffix == ".pdf" or mime_type == "application/pdf":
+        if PdfReader is None:
+            return None
+        try:
+            from io import BytesIO
+
+            reader = PdfReader(BytesIO(data))
+            chunks: List[str] = []
+            for page in reader.pages:
+                content = page.extract_text() or ""
+                if content:
+                    chunks.append(content)
+            return "\n".join(chunks).strip() or None
+        except Exception:
+            return None
     return None
 
 
