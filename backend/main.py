@@ -172,10 +172,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     except Exception as exc:
         route_info = {"mode": "council", "reason": f"router_error:{exc}"}
     logger.info(
-        "router decision conversation_id=%s mode=%s reason=%s",
+        "router decision conversation_id=%s mode=%s reason=%s router_model=%s chairman=%s",
         conversation_id,
         route_info.get("mode"),
         route_info.get("reason"),
+        route_info.get("model") or "Delegator",
+        "Chairman",
     )
 
     use_single_agent = route_info.get("mode") == "single"
@@ -299,10 +301,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             except Exception as exc:
                 route_info = {"mode": "council", "reason": f"router_error:{exc}"}
             logger.info(
-                "router decision (stream) conversation_id=%s mode=%s reason=%s",
+                "router decision (stream) conversation_id=%s mode=%s reason=%s router_model=%s chairman=%s",
                 conversation_id,
                 route_info.get("mode"),
                 route_info.get("reason"),
+                route_info.get("model") or "Delegator",
+                "Chairman",
             )
 
             # Start title generation after routing; skip for trivial reasons to save time

@@ -76,9 +76,11 @@ ARTIFACT_TOOL_MAX_CHARS = 8000
 COUNCIL_MEMBER_INSTRUCTION = (
     "You are a voting member of the LLM Council. "
     "Provide deeply reasoned answers, cite the tools you called, and explain tradeoffs. "
-    "Available tools: `browse_web` for fetching URLs, `read_repository_file` for "
-    "reading project files, and `read_uploaded_artifact` for accessing user-provided "
-    "attachments. Use them whenever you need current context or source material."
+    "Available tools: `google_search` (use this first to find sources), `browse_web` for "
+    "fetching a URL AFTER you have a specific target, `read_repository_file` for project files, "
+    "and `read_uploaded_artifact` for user-provided attachments. Prefer google_search as your "
+    "first step; only call browse_web with a specific URL. Avoid guessing links or issuing "
+    "repeated fetches to 404/403 pages."
 )
 
 STAGE1_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, a council member asked to address:
@@ -86,7 +88,7 @@ STAGE1_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, a council mem
 Latest question: {user_query}
 
 Deliver a thoughtful, tool-supported response. Explicitly mention if you used browsing or file
-reading tools and summarize the evidence you relied on."""
+reading tools and summarize the evidence you relied on. Start with `google_search` to find sources; only call `browse_web` when you have a specific URL to inspect. Do not guess or spam URLs."""
 
 STAGE2_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, reviewing anonymized council responses to:
 
@@ -449,8 +451,8 @@ class AdkCouncilRuntime:
         timer = time.perf_counter()
         agent = self._council_agents[0]
         agent_for_run = agent.clone()
-        if not allow_tools:
-            agent_for_run.tools = []
+        if not getattr(agent_for_run, "tools", None):
+            agent_for_run.tools = list(agent.tools or [])
         history_section = _build_history_section(history_messages)
         prompt = _format_prompt(
             STAGE1_PROMPT_TEMPLATE,
@@ -458,6 +460,8 @@ class AdkCouncilRuntime:
             user_query=user_query,
             history_section=history_section,
         )
+        if not allow_tools:
+            prompt = f"{prompt}\n\nRestriction: This is a simple or low-complexity message. Do not call any tools or functions. Respond directly and concisely without browsing or searching."
         response_text = await self._run_agent(agent_for_run, prompt)
         text = response_text or "Unable to provide a response at this time."
         stage_entry = {"model": agent.name, "response": text}
@@ -780,6 +784,16 @@ def _get_runtime() -> AdkCouncilRuntime:
     global _runtime
     if _runtime is None:
         _runtime = AdkCouncilRuntime()
+        member_desc = ", ".join(
+            f"{m.get('name')}[{m.get('model')}]" for m in ADK_COUNCIL_MEMBERS
+        )
+        logger.info(
+            "adk runtime initialized router=%s chairman=%s title=%s members=%s",
+            ADK_ROUTER_MODEL,
+            ADK_CHAIRMAN_MODEL,
+            ADK_TITLE_MODEL,
+            member_desc,
+        )
     return _runtime
 
 
