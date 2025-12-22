@@ -261,6 +261,9 @@
   resize: vertical;
   min-height: 90px;
   max-height: 300px;
+  direction: auto;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .message-input:focus {
