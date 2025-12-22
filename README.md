@@ -2,13 +2,13 @@
 
 ![llmcouncil](header.jpg)
 
-The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, eg.c), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses OpenRouter to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, eg.c), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it now uses the **Google Agent Development Kit (ADK)** to coordinate multiple Gemini-based agents. A chairman agent dispatches your query to sub agents (each backed by a different Gemini model), the agents review and rank each other's work, and finally the chairman produces the definitive response.
 
 In a bit more detail, here is what happens when you submit a query:
 
-1. **Stage 1: First opinions**. The user query is given to all LLMs individually, and the responses are collected. The individual responses are shown in a "tab view", so that the user can inspect them all one by one.
-2. **Stage 2: Review**. Each individual LLM is given the responses of the other LLMs. Under the hood, the LLM identities are anonymized so that the LLM can't play favorites when judging their outputs. The LLM is asked to rank them in accuracy and insight.
-3. **Stage 3: Final response**. The designated Chairman of the LLM Council takes all of the model's responses and compiles them into a single final answer that is presented to the user.
+1. **Stage 1: First opinions**. The chairman asks each ADK sub-agent (configured with a unique Gemini model) to answer the user prompt. Their responses show up in a tab view so you can inspect every opinion.
+2. **Stage 2: Review**. The same agents receive anonymized versions of their peers' answers and must critique and rank them using the strict `FINAL RANKING` format.
+3. **Stage 3: Final response**. The chairman agent combines the best ideas, resolves disagreements, and delivers one polished answer.
 
 ## Vibe Code Alert
 
@@ -32,30 +32,24 @@ npm install
 cd ..
 ```
 
-### 2. Configure API Key
+### 2. Configure API Keys
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root and add your Google Generative AI key (the ADK looks for `GOOGLE_API_KEY`). You can optionally override the built-in council roster with `ADK_COUNCIL_MEMBERS` (comma-separated `name:model` pairs).
 
 ```bash
-OPENROUTER_API_KEY=sk-or-v1-...
+GOOGLE_API_KEY=sk-your-gemini-key
+# Optional: override the default Gemini pairings
+# ADK_COUNCIL_MEMBERS="Orion:gemini-2.5-flash-preview-05-20,Lyra:gemini-2.0-flash-thinking-exp-01-21,Vega:gemini-1.5-pro-002"
 ```
 
-Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
+### 3. Tune the ADK Council (Optional)
 
-### 3. Configure Models (Optional)
+`backend/config.py` exposes additional toggles:
 
-Edit `backend/config.py` to customize the council:
-
-```python
-COUNCIL_MODELS = [
-    "openai/gpt-5.1",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
-]
-
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
-```
+- `ADK_CHAIRMAN_MODEL` and `ADK_TITLE_MODEL` let you pick which Gemini model synthesizes the final answer/title.
+- `ADK_COUNCIL_MEMBERS` (env var) defines the chair's sub-agents — same instructions, different models.
+- `ADK_FILE_TOOL_MAX_BYTES` / `ADK_WEB_TOOL_MAX_CHARS` control how much text the built-in tools can surface.
+- `ADK_ALLOWED_FILE_ROOT` lets you scope which part of the repo agents are allowed to read.
 
 ## Running the Application
 
@@ -81,7 +75,13 @@ Then open http://localhost:5173 in your browser.
 
 ## Tech Stack
 
-- **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API
+- **Backend:** FastAPI (Python 3.10+), Google Agent Development Kit (Gemini), async httpx (for tool calls)
 - **Frontend:** React + Vite, react-markdown for rendering
 - **Storage:** JSON files in `data/conversations/`
 - **Package Management:** uv for Python, npm for JavaScript
+
+## ADK Agents & Tools
+
+- **Chairman agent:** Coordinates question routing, tracks stage output, and synthesizes the final message.
+- **Sub agents:** Identical instructions but each runs on a different Gemini model to maximize diversity of thought.
+- **Tooling:** Every agent can call `browse_web` (fetch/clean external URLs) and `read_repository_file` (inspect files or directories inside this repo). Use them when a prompt depends on fresh information or code context.
