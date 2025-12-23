@@ -74,21 +74,11 @@ ARTIFACT_TOOL_MAX_CHARS = 8000
 
 
 COUNCIL_MEMBER_INSTRUCTION = (
-    "You are a voting member of the LLM Council. "
-    "Provide deeply reasoned answers, cite the tools you called, and explain tradeoffs. "
-    "Available tools: `google_search` (use this first to find sources), `browse_web` for "
-    "fetching a URL AFTER you have a specific target, `read_repository_file` for project files, "
-    "and `read_uploaded_artifact` for user-provided attachments. Prefer google_search as your "
-    "first step; only call browse_web with a specific URL. Avoid guessing links or issuing "
-    "repeated fetches to 404/403 pages."
+    "Provide thorough, well-reasoned answers. Cite your sources (websites, documents) "
+    "when you reference external information."
 )
 
-STAGE1_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, a council member asked to address:
-
-Latest question: {user_query}
-
-Deliver a thoughtful, tool-supported response. Explicitly mention if you used browsing or file
-reading tools and summarize the evidence you relied on. Start with `google_search` to find sources; only call `browse_web` when you have a specific URL to inspect. Do not guess or spam URLs."""
+STAGE1_PROMPT_TEMPLATE = """{history_section}{user_query}"""
 
 STAGE2_PROMPT_TEMPLATE = """{history_section}You are {agent_name}, reviewing anonymized council responses to:
 
@@ -161,7 +151,7 @@ def _format_conversation_history(messages: List[Dict[str, Any]]) -> str:
 def _build_history_section(messages: List[Dict[str, Any]]) -> str:
     text = _format_conversation_history(messages)
     if not text:
-        return "This is the first exchange between the user and the council.\n\n"
+        return ""
     return f"Conversation so far:\n{text}\n\n"
 
 
