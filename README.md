@@ -101,4 +101,13 @@ Then open http://localhost:5173 in your browser.
 
 ## Credits
 
-Originally created by [Andrej Karpathy](https://github.com/karpathy/llm-council).
+This is a revised version of [Andrej Karpathy's llm-council](https://github.com/karpathy/llm-council) with the following changes:
+
+- **Google ADK backend** - Refactored from direct API calls to use Google's Agent Development Kit framework
+- **Multi-provider support** - Added OpenRouter integration for GPT, Claude, and other non-Google models
+- **Real-time streaming** - Individual agent responses appear as they complete instead of waiting for all
+- **Improved UI layout** - Cleaner visual design and better organization of stages
+- **RTL language support** - Proper display of Hebrew, Arabic, and other right-to-left languages
+- **Simplified prompts** - Removed unnecessary "council member" framing; agents just answer the question directly
+- **Unified pipeline** - Cleaner async pipeline pattern with streaming callbacks
+- **Updated models** - Default council uses Gemini 3 and GPT 5.2
