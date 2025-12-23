@@ -47,6 +47,38 @@ export const api = {
   },
 
   /**
+   * Export a conversation as Markdown or JSON.
+   * @param {string} conversationId - The conversation ID
+   * @param {string} format - Export format: 'markdown' or 'json'
+   */
+  async exportConversation(conversationId, format = 'markdown') {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/export?format=${format}`
+    );
+    if (!response.ok) {
+      throw new Error('Failed to export conversation');
+    }
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `conversation.${format === 'json' ? 'json' : 'md'}`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="(.+)"/);
+      if (match) {
+        filename = match[1];
+      }
+    }
+    // Trigger download
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  },
+
+  /**
    * Send a message in a conversation.
    */
   async uploadAttachment(conversationId, file) {

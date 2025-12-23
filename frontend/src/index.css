@@ -99,3 +99,27 @@ body {
   border-inline-start: 4px solid #ddd;
   color: #666;
 }
+
+.markdown-content table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--border-color, #333);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--bg-surface-hover);
+  font-weight: 600;
+}
+
+.markdown-content tr:nth-child(even) {
+  background: var(--bg-surface);
+}

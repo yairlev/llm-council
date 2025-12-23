@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './Stage2.css';
 
 function deAnonymizeText(text, labelToModel) {
@@ -40,7 +41,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, load
       <div className="tabs">
         {rankings.map((rank, index) => (
           <button
-            key={index}
+            key={rank.model}
             className={`tab ${safeActiveTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
@@ -54,7 +55,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, load
           {rankings[safeActiveTab].model}
         </div>
         <div className="ranking-content markdown-content" dir="auto">
-          <ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {deAnonymizeText(rankings[safeActiveTab].ranking, labelToModel)}
           </ReactMarkdown>
         </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
@@ -198,7 +199,7 @@ export default function ChatInterface({
                     <div className="message-label">You</div>
                     <div className="message-content" dir="auto">
                       <div className="markdown-content">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                       </div>
                       {renderMessageAttachments(msg.attachments)}
                     </div>
@@ -373,7 +374,7 @@ function SingleAgentResponse({ message }) {
       </div>
       <div className="single-agent-content" dir="auto">
         <div className="markdown-content">
-          <ReactMarkdown>{body}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
         </div>
       </div>
     </div>

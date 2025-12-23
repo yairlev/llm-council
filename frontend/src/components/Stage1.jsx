@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './Stage1.css';
 
 export default function Stage1({ responses, loading = false }) {
@@ -22,7 +23,7 @@ export default function Stage1({ responses, loading = false }) {
       <div className="tabs">
         {responses.map((resp, index) => (
           <button
-            key={index}
+            key={resp.model}
             className={`tab ${safeActiveTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
@@ -34,7 +35,7 @@ export default function Stage1({ responses, loading = false }) {
       <div className="tab-content">
         <div className="model-name">{responses[safeActiveTab].model}</div>
         <div className="response-text markdown-content" dir="auto">
-          <ReactMarkdown>{responses[safeActiveTab].response}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{responses[safeActiveTab].response}</ReactMarkdown>
         </div>
       </div>
     </div>

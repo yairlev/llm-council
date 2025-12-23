@@ -108,7 +108,12 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.stage1 = [...(lastMsg.stage1 || []), event.data];
+              const existing = lastMsg.stage1 || [];
+              // Deduplicate by model name
+              if (existing.some((r) => r.model === event.data.model)) {
+                return prev;
+              }
+              lastMsg.stage1 = [...existing, event.data];
               return { ...prev, messages };
             });
             break;
@@ -138,7 +143,12 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
-              lastMsg.stage2 = [...(lastMsg.stage2 || []), event.data];
+              const existing = lastMsg.stage2 || [];
+              // Deduplicate by model name
+              if (existing.some((r) => r.model === event.data.model)) {
+                return prev;
+              }
+              lastMsg.stage2 = [...existing, event.data];
               return { ...prev, messages };
             });
             break;

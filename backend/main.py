@@ -1,8 +1,8 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import uuid
@@ -96,6 +96,83 @@ async def get_conversation(conversation_id: str):
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+@app.get("/api/conversations/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: str,
+    format: str = Query("markdown", pattern="^(markdown|json)$"),
+):
+    """Export a conversation as Markdown or JSON."""
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    title = conversation.get("title", "Untitled Conversation")
+    safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)[:50]
+
+    if format == "json":
+        content = json.dumps(conversation, indent=2, ensure_ascii=False)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{safe_title}.json"'},
+        )
+
+    # Markdown format
+    lines = [f"# {title}", ""]
+    lines.append(f"*Exported from LLM Council on {conversation.get('created_at', 'unknown date')}*")
+    lines.append("")
+
+    for msg in conversation.get("messages", []):
+        if msg.get("role") == "user":
+            lines.append("---")
+            lines.append("")
+            lines.append("## User")
+            lines.append("")
+            lines.append(msg.get("content", ""))
+            lines.append("")
+        else:
+            # Assistant message with stages
+            stage1 = msg.get("stage1", [])
+            stage2 = msg.get("stage2", [])
+            stage3 = msg.get("stage3")
+
+            if stage1:
+                lines.append("## Stage 1: Individual Responses")
+                lines.append("")
+                for resp in stage1:
+                    model = resp.get("model", "Unknown")
+                    lines.append(f"### {model}")
+                    lines.append("")
+                    lines.append(resp.get("response", ""))
+                    lines.append("")
+
+            if stage2:
+                lines.append("## Stage 2: Peer Rankings")
+                lines.append("")
+                for rank in stage2:
+                    model = rank.get("model", "Unknown")
+                    lines.append(f"### {model}'s Evaluation")
+                    lines.append("")
+                    lines.append(rank.get("ranking", ""))
+                    lines.append("")
+
+            if stage3:
+                lines.append("## Stage 3: Final Answer")
+                lines.append("")
+                chairman = stage3.get("model", "Chairman")
+                lines.append(f"*Chairman: {chairman}*")
+                lines.append("")
+                lines.append(stage3.get("response", ""))
+                lines.append("")
+
+    content = "\n".join(lines)
+    return Response(
+        content=content,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}.md"'},
+    )
 
 
 @app.post("/api/conversations/{conversation_id}/attachments")
