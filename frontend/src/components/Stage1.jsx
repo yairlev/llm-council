@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import './Stage1.css';
 
 export default function Stage1({ responses, loading = false }) {
@@ -35,7 +38,7 @@ export default function Stage1({ responses, loading = false }) {
       <div className="tab-content">
         <div className="model-name">{responses[safeActiveTab].model}</div>
         <div className="response-text markdown-content" dir="auto">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{responses[safeActiveTab].response}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{responses[safeActiveTab].response}</ReactMarkdown>
         </div>
       </div>
     </div>
